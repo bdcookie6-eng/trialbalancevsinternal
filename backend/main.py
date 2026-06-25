@@ -29,7 +29,16 @@ async def index() -> HTMLResponse:
 @app.post("/api/inspect")
 async def inspect_endpoint(file: UploadFile):
     raw = await file.read()
-    return inspect_upload(file.filename, raw)
+    if not raw:
+        return {"format": "error", "error": "The uploaded file is empty."}
+    try:
+        return inspect_upload(file.filename, raw)
+    except Exception as exc:
+        return {"format": "error", "error": str(exc)}
+
+
+class ReconcileInputError(Exception):
+    pass
 
 
 async def _load_entries(
@@ -38,10 +47,21 @@ async def _load_entries(
     balance_column: str | None = None,
     mapping_json: str | None = None,
 ) -> list[TBEntry]:
-    mapping = json.loads(mapping_json) if mapping_json else None
+    try:
+        mapping = json.loads(mapping_json) if mapping_json else None
+    except json.JSONDecodeError as exc:
+        raise ReconcileInputError("Invalid column mapping submitted.") from exc
+
     if file is not None and file.filename:
         raw = await file.read()
-        return parse_upload(file.filename, raw, balance_column=balance_column, mapping=mapping)
+        if not raw:
+            raise ReconcileInputError(f"The uploaded file '{file.filename}' is empty.")
+        try:
+            return parse_upload(file.filename, raw, balance_column=balance_column, mapping=mapping)
+        except ValueError as exc:
+            raise ReconcileInputError(str(exc)) from exc
+        except Exception as exc:
+            raise ReconcileInputError(f"Could not read '{file.filename}': {exc}") from exc
     if text:
         return parse_pasted_text(text)
     return []
@@ -88,10 +108,13 @@ async def reconcile_endpoint(
     client_name: str = Form(default="Client"),
     period_label: str = Form(default=""),
 ):
-    client_entries = await _load_entries(client_file, client_text, mapping_json=client_mapping)
-    audit_entries = await _load_entries(
-        audit_file, audit_text, balance_column=balance_column, mapping_json=audit_mapping
-    )
+    try:
+        client_entries = await _load_entries(client_file, client_text, mapping_json=client_mapping)
+        audit_entries = await _load_entries(
+            audit_file, audit_text, balance_column=balance_column, mapping_json=audit_mapping
+        )
+    except ReconcileInputError as exc:
+        return {"error": str(exc)}
 
     if not client_entries or not audit_entries:
         return {
@@ -100,9 +123,12 @@ async def reconcile_endpoint(
         }
 
     compared_column = balance_column or (audit_file.filename if audit_file else "Audited Balance")
-    report = build_comparison(client_entries, audit_entries, compared_column)
+    try:
+        report = build_comparison(client_entries, audit_entries, compared_column)
+        result = _report_to_json(report)
+        workbook_bytes = build_workbook(report, client_name, period_label)
+    except Exception as exc:
+        return {"error": f"Reconciliation failed: {exc}"}
 
-    result = _report_to_json(report)
-    workbook_bytes = build_workbook(report, client_name, period_label)
     result["workbook_base64"] = base64.b64encode(workbook_bytes).decode("ascii")
     return result

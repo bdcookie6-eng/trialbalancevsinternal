@@ -156,6 +156,14 @@ async function handleFileInspect(target, file) {
     const response = await fetch("/api/inspect", { method: "POST", body: formData });
     const info = await response.json();
 
+    if (info.format === "error" || info.format === "unsupported") {
+      if (target === "audit") columnPicker.hidden = true;
+      mappingPanels[target].hide();
+      statusEl.textContent = info.error || "Could not read the uploaded file.";
+      statusEl.className = "error";
+      return;
+    }
+
     if (target === "audit" && info.format === "audit_workpaper" && info.columns && info.columns.length) {
       balanceColumnSelect.innerHTML = info.columns
         .map((c) => `<option value="${c}" ${c === info.default_column ? "selected" : ""}>${c}</option>`)
@@ -173,6 +181,8 @@ async function handleFileInspect(target, file) {
   } catch (err) {
     if (target === "audit") columnPicker.hidden = true;
     mappingPanels[target].hide();
+    statusEl.textContent = `Could not inspect the uploaded file: ${err.message}`;
+    statusEl.className = "error";
   }
 }
 

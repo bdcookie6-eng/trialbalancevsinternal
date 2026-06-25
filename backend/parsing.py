@@ -55,17 +55,33 @@ def _to_float(value) -> float | None:
     return -amount if negative else amount
 
 
+def _load_workbook(raw: bytes):
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+    except Exception as exc:
+        raise ValueError(
+            "Could not read this as an Excel file — it may be corrupted, password-protected, "
+            "or not actually an .xlsx file."
+        ) from exc
+    if not wb.worksheets:
+        raise ValueError("This Excel file has no sheets.")
+    return wb
+
+
 def _load_grid(filename: str, raw: bytes) -> list[list]:
     """Load a file into a plain 2D grid of cell values, 1-indexed by row/column
     position for callers. Shared by the client-format detector and the
     column-mapping fallback so both work across xlsx and csv alike."""
     lower = filename.lower()
     if lower.endswith((".xlsx", ".xls")):
-        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+        wb = _load_workbook(raw)
         ws = wb.worksheets[0]
         return [[c.value for c in row] for row in ws.iter_rows()]
     if lower.endswith(".csv"):
-        text = raw.decode("utf-8-sig", errors="replace")
+        try:
+            text = raw.decode("utf-8-sig", errors="replace")
+        except Exception as exc:
+            raise ValueError("Could not read this CSV file's text encoding.") from exc
         return list(csv.reader(io.StringIO(text)))
     raise ValueError(f"Cannot grid-load file type: {filename}")
 
@@ -100,7 +116,7 @@ def _find_header_row(ws) -> int | None:
 
 def inspect_audit_workpaper(raw: bytes) -> dict:
     """Return detected balance columns so the caller can choose which to compare."""
-    wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+    wb = _load_workbook(raw)
     ws = wb.worksheets[0]
     header_row_idx = _find_header_row(ws)
     if header_row_idx is None:
@@ -147,7 +163,7 @@ def _classify_rows_by_tag(ws, header_row_idx: int) -> list[int] | None:
 
 
 def parse_audit_workpaper(raw: bytes, balance_column: str | None = None) -> list[TBEntry]:
-    wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+    wb = _load_workbook(raw)
     ws = wb.worksheets[0]
     header_row_idx = _find_header_row(ws)
     if header_row_idx is None:
@@ -410,15 +426,25 @@ class ColumnMapping:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ColumnMapping":
-        return cls(
-            header_row=int(data["header_row"]),
-            name_col=int(data["name_col"]),
-            code_col=int(data["code_col"]) if data.get("code_col") else None,
-            balance_col=int(data["balance_col"]) if data.get("balance_col") else None,
-            debit_col=int(data["debit_col"]) if data.get("debit_col") else None,
-            credit_col=int(data["credit_col"]) if data.get("credit_col") else None,
-            stop_text=data.get("stop_text") or None,
-        )
+        try:
+            header_row = int(data["header_row"])
+            name_col = int(data["name_col"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "Column mapping is missing a header row or account name column."
+            ) from exc
+        try:
+            return cls(
+                header_row=header_row,
+                name_col=name_col,
+                code_col=int(data["code_col"]) if data.get("code_col") else None,
+                balance_col=int(data["balance_col"]) if data.get("balance_col") else None,
+                debit_col=int(data["debit_col"]) if data.get("debit_col") else None,
+                credit_col=int(data["credit_col"]) if data.get("credit_col") else None,
+                stop_text=data.get("stop_text") or None,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Column mapping has a non-numeric column index.") from exc
 
 
 def parse_with_mapping(filename: str, raw: bytes, mapping: ColumnMapping) -> list[TBEntry]:
@@ -568,7 +594,12 @@ def inspect_upload(filename: str, raw: bytes) -> dict:
         if _generic_columns_confident(pd.read_csv(io.BytesIO(raw))):
             return {"format": "generic"}
         return _inspect_unknown(filename, raw)
-    return {"format": "generic"}
+    if lower.endswith(".pdf"):
+        return {"format": "generic"}
+    return {
+        "format": "unsupported",
+        "error": f"Unsupported file type: {filename}. Please upload a CSV, XLSX, or PDF file.",
+    }
 
 
 def parse_upload(
