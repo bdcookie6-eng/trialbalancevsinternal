@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Trial Balance Reconciliation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Trial Balance Reconciliation</h1>
+    <p class="subtitle">Confirm the client's internal trial balance matches the audited trial balance for the period.</p>
+  </header>
+
+  <main>
+    <form id="reconcile-form">
+      <div class="tb-columns">
+        <section class="tb-input">
+          <h2>Internal Trial Balance</h2>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" data-mode="file" data-target="internal">Upload file</button>
+            <button type="button" class="mode-btn" data-mode="text" data-target="internal">Paste data</button>
+          </div>
+          <input type="file" id="internal_file" name="internal_file" accept=".csv,.xlsx,.xls,.pdf" />
+          <textarea id="internal_text" name="internal_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+        </section>
+
+        <section class="tb-input">
+          <h2>Audited Trial Balance</h2>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" data-mode="file" data-target="audited">Upload file</button>
+            <button type="button" class="mode-btn" data-mode="text" data-target="audited">Paste data</button>
+          </div>
+          <input type="file" id="audited_file" name="audited_file" accept=".csv,.xlsx,.xls,.pdf" />
+          <textarea id="audited_text" name="audited_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+        </section>
+      </div>
+
+      <button type="submit" id="run-btn">Run Reconciliation</button>
+    </form>
+
+    <div id="status"></div>
+
+    <section id="results" hidden>
+      <div class="summary-cards" id="summary-cards"></div>
+
+      <div class="results-actions">
+        <a id="download-link" href="#" download="trial_balance_reconciliation.xlsx">Download Excel workbook</a>
+      </div>
+
+      <h2>Matched Accounts</h2>
+      <table id="matched-table">
+        <thead>
+          <tr>
+            <th>Internal Account</th>
+            <th>Internal Balance</th>
+            <th>Audited Account</th>
+            <th>Audited Balance</th>
+            <th>Difference</th>
+            <th>Method</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h2>Missing in Audited TB <span class="hint">(in internal records, no audited counterpart found)</span></h2>
+      <table id="missing-audited-table">
+        <thead><tr><th>Internal Account</th><th>Internal Balance</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h2>Missing in Internal TB <span class="hint">(in audited records, no internal counterpart found)</span></h2>
+      <table id="missing-internal-table">
+        <thead><tr><th>Audited Account</th><th>Audited Balance</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
