@@ -1,3 +1,127 @@
+const form = document.getElementById("reconcile-form");
+const statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results");
+const runBtn = document.getElementById("run-btn");
+const auditFileInput = document.getElementById("audit_file");
+const clientFileInput = document.getElementById("client_file");
+const columnPicker = document.getElementById("column-picker");
+const balanceColumnSelect = document.getElementById("balance_column");
+
+function money(value) {
+  if (value === null || value === undefined) return "";
+  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function buildMappingPanel(target) {
+  const panel = document.getElementById(`${target}-mapping-panel`);
+  const headerRowSelect = panel.querySelector(".map-header-row");
+  const nameColSelect = panel.querySelector(".map-name-col");
+  const codeColSelect = panel.querySelector(".map-code-col");
+  const balanceColSelect = panel.querySelector(".map-balance-col");
+  const debitColSelect = panel.querySelector(".map-debit-col");
+  const creditColSelect = panel.querySelector(".map-credit-col");
+  const stopTextInput = panel.querySelector(".map-stop-text");
+  const hiddenField = panel.querySelector(".mapping-json-field");
+  const aiFlag = panel.querySelector(".ai-flag");
+  const previewTable = panel.querySelector(".grid-preview");
+  const balanceModeBtns = panel.querySelectorAll(".balance-mode-btn");
+  const singleFields = panel.querySelectorAll(".balance-mode-field.single");
+  const debitCreditFields = panel.querySelectorAll(".balance-mode-field.debit-credit");
+  let balanceMode = "single";
+
+  function colOptions(n, includeBlank) {
+    let html = includeBlank ? `<option value="">—</option>` : "";
+    for (let i = 1; i <= n; i++) html += `<option value="${i}">Column ${i}</option>`;
+    return html;
+  }
+
+  function setBalanceMode(mode) {
+    balanceMode = mode;
+    balanceModeBtns.forEach((b) => b.classList.toggle("active", b.dataset.balanceMode === mode));
+    singleFields.forEach((el) => (el.hidden = mode !== "single"));
+    debitCreditFields.forEach((el) => (el.hidden = mode !== "debit-credit"));
+  }
+
+  function updateHidden() {
+    const mapping = {
+      header_row: Number(headerRowSelect.value),
+      name_col: Number(nameColSelect.value),
+      code_col: codeColSelect.value ? Number(codeColSelect.value) : null,
+      stop_text: stopTextInput.value.trim() || null,
+    };
+    if (balanceMode === "single") {
+      mapping.balance_col = balanceColSelect.value ? Number(balanceColSelect.value) : null;
+    } else {
+      mapping.debit_col = debitColSelect.value ? Number(debitColSelect.value) : null;
+      mapping.credit_col = creditColSelect.value ? Number(creditColSelect.value) : null;
+    }
+    hiddenField.value = JSON.stringify(mapping);
+  }
+
+  balanceModeBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setBalanceMode(btn.dataset.balanceMode);
+      updateHidden();
+    });
+  });
+  [headerRowSelect, nameColSelect, codeColSelect, balanceColSelect, debitColSelect, creditColSelect].forEach(
+    (el) => el.addEventListener("change", updateHidden)
+  );
+  stopTextInput.addEventListener("input", updateHidden);
+
+  return {
+    show(info) {
+      const rows = info.grid_preview || [];
+      const numCols = rows.reduce((max, r) => Math.max(max, r.length), 0);
+
+      previewTable.querySelector("thead").innerHTML =
+        "<tr>" + Array.from({ length: numCols }, (_, i) => `<th>Col ${i + 1}</th>`).join("") + "</tr>";
+      previewTable.querySelector("tbody").innerHTML = rows
+        .slice(0, 10)
+        .map((r) => "<tr>" + r.map((c) => `<td>${c ?? ""}</td>`).join("") + "</tr>")
+        .join("");
+
+      headerRowSelect.innerHTML =
+        `<option value="0">No header row</option>` +
+        rows.slice(0, 20).map((_, i) => `<option value="${i + 1}">Row ${i + 1}</option>`).join("");
+      nameColSelect.innerHTML = colOptions(numCols, false);
+      codeColSelect.innerHTML = colOptions(numCols, true);
+      balanceColSelect.innerHTML = colOptions(numCols, false);
+      debitColSelect.innerHTML = colOptions(numCols, false);
+      creditColSelect.innerHTML = colOptions(numCols, false);
+
+      const suggestion = info.suggested_mapping;
+      aiFlag.hidden = !suggestion;
+      setBalanceMode("single");
+      if (suggestion) {
+        headerRowSelect.value = String(suggestion.header_row ?? 0);
+        nameColSelect.value = String(suggestion.name_col ?? 1);
+        codeColSelect.value = suggestion.code_col ? String(suggestion.code_col) : "";
+        stopTextInput.value = suggestion.stop_text || "";
+        if (suggestion.balance_col) {
+          balanceColSelect.value = String(suggestion.balance_col);
+        } else if (suggestion.debit_col || suggestion.credit_col) {
+          debitColSelect.value = suggestion.debit_col ? String(suggestion.debit_col) : "";
+          creditColSelect.value = suggestion.credit_col ? String(suggestion.credit_col) : "";
+          setBalanceMode("debit-credit");
+        }
+      }
+
+      panel.hidden = false;
+      updateHidden();
+    },
+    hide() {
+      panel.hidden = true;
+      hiddenField.value = "";
+    },
+  };
+}
+
+const mappingPanels = {
+  client: buildMappingPanel("client"),
+  audit: buildMappingPanel("audit"),
+};
+
 document.querySelectorAll(".mode-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const target = btn.dataset.target;
@@ -14,49 +138,46 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
     } else {
       fileInput.hidden = true;
       textInput.hidden = false;
-      if (target === "audit") {
-        document.getElementById("column-picker").hidden = true;
-      }
+      if (target === "audit") columnPicker.hidden = true;
+      mappingPanels[target].hide();
     }
   });
 });
 
-const form = document.getElementById("reconcile-form");
-const statusEl = document.getElementById("status");
-const resultsEl = document.getElementById("results");
-const runBtn = document.getElementById("run-btn");
-const auditFileInput = document.getElementById("audit_file");
-const columnPicker = document.getElementById("column-picker");
-const balanceColumnSelect = document.getElementById("balance_column");
-
-function money(value) {
-  if (value === null || value === undefined) return "";
-  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-auditFileInput.addEventListener("change", async () => {
-  const file = auditFileInput.files[0];
+async function handleFileInspect(target, file) {
   if (!file) {
-    columnPicker.hidden = true;
+    if (target === "audit") columnPicker.hidden = true;
+    mappingPanels[target].hide();
     return;
   }
   const formData = new FormData();
-  formData.append("audit_file", file);
+  formData.append("file", file);
   try {
-    const response = await fetch("/api/inspect-audit", { method: "POST", body: formData });
+    const response = await fetch("/api/inspect", { method: "POST", body: formData });
     const info = await response.json();
-    if (info.is_audit_workpaper && info.columns && info.columns.length) {
+
+    if (target === "audit" && info.format === "audit_workpaper" && info.columns && info.columns.length) {
       balanceColumnSelect.innerHTML = info.columns
         .map((c) => `<option value="${c}" ${c === info.default_column ? "selected" : ""}>${c}</option>`)
         .join("");
       columnPicker.hidden = false;
-    } else {
+    } else if (target === "audit") {
       columnPicker.hidden = true;
     }
+
+    if (info.format === "unknown") {
+      mappingPanels[target].show(info);
+    } else {
+      mappingPanels[target].hide();
+    }
   } catch (err) {
-    columnPicker.hidden = true;
+    if (target === "audit") columnPicker.hidden = true;
+    mappingPanels[target].hide();
   }
-});
+}
+
+clientFileInput.addEventListener("change", () => handleFileInspect("client", clientFileInput.files[0]));
+auditFileInput.addEventListener("change", () => handleFileInspect("audit", auditFileInput.files[0]));
 
 function renderSummaryPreview(data) {
   document.getElementById("preview-title").textContent = document.getElementById("client_name").value;

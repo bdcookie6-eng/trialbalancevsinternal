@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, Form, UploadFile
@@ -25,18 +26,22 @@ async def index() -> HTMLResponse:
     return HTMLResponse((TEMPLATES_DIR / "index.html").read_text())
 
 
-@app.post("/api/inspect-audit")
-async def inspect_audit_endpoint(audit_file: UploadFile):
-    raw = await audit_file.read()
-    return inspect_upload(audit_file.filename, raw)
+@app.post("/api/inspect")
+async def inspect_endpoint(file: UploadFile):
+    raw = await file.read()
+    return inspect_upload(file.filename, raw)
 
 
 async def _load_entries(
-    file: UploadFile | None, text: str | None, balance_column: str | None = None
+    file: UploadFile | None,
+    text: str | None,
+    balance_column: str | None = None,
+    mapping_json: str | None = None,
 ) -> list[TBEntry]:
+    mapping = json.loads(mapping_json) if mapping_json else None
     if file is not None and file.filename:
         raw = await file.read()
-        return parse_upload(file.filename, raw, balance_column=balance_column)
+        return parse_upload(file.filename, raw, balance_column=balance_column, mapping=mapping)
     if text:
         return parse_pasted_text(text)
     return []
@@ -78,11 +83,15 @@ async def reconcile_endpoint(
     client_text: str | None = Form(default=None),
     audit_text: str | None = Form(default=None),
     balance_column: str | None = Form(default=None),
+    client_mapping: str | None = Form(default=None),
+    audit_mapping: str | None = Form(default=None),
     client_name: str = Form(default="Client"),
     period_label: str = Form(default=""),
 ):
-    client_entries = await _load_entries(client_file, client_text)
-    audit_entries = await _load_entries(audit_file, audit_text, balance_column=balance_column)
+    client_entries = await _load_entries(client_file, client_text, mapping_json=client_mapping)
+    audit_entries = await _load_entries(
+        audit_file, audit_text, balance_column=balance_column, mapping_json=audit_mapping
+    )
 
     if not client_entries or not audit_entries:
         return {

@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import openpyxl
 import pandas as pd
@@ -51,6 +53,21 @@ def _to_float(value) -> float | None:
     except ValueError:
         return None
     return -amount if negative else amount
+
+
+def _load_grid(filename: str, raw: bytes) -> list[list]:
+    """Load a file into a plain 2D grid of cell values, 1-indexed by row/column
+    position for callers. Shared by the client-format detector and the
+    column-mapping fallback so both work across xlsx and csv alike."""
+    lower = filename.lower()
+    if lower.endswith((".xlsx", ".xls")):
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+        ws = wb.worksheets[0]
+        return [[c.value for c in row] for row in ws.iter_rows()]
+    if lower.endswith(".csv"):
+        text = raw.decode("utf-8-sig", errors="replace")
+        return list(csv.reader(io.StringIO(text)))
+    raise ValueError(f"Cannot grid-load file type: {filename}")
 
 
 # ---------------------------------------------------------------------------
@@ -197,46 +214,49 @@ def parse_audit_workpaper(raw: bytes, balance_column: str | None = None) -> list
 # ---------------------------------------------------------------------------
 
 
-def _find_client_header_row(ws) -> int | None:
-    for row in ws.iter_rows(min_row=1, max_row=min(20, ws.max_row)):
-        values = [str(c.value).strip().lower() if c.value is not None else "" for c in row]
+def _find_client_header_row(grid: list[list]) -> int | None:
+    for i, row in enumerate(grid[: min(20, len(grid))], start=1):
+        values = [str(c).strip().lower() if c is not None else "" for c in row]
         has_name = any(v in ("full name", "account name", "account") for v in values)
         has_debit_credit = "debit" in values and "credit" in values
         if has_name and has_debit_credit:
-            return row[0].row
+            return i
     return None
 
 
-def is_client_debit_credit_format(raw: bytes) -> bool:
-    wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
-    ws = wb.worksheets[0]
-    return _find_client_header_row(ws) is not None
+def is_client_debit_credit_format(filename: str, raw: bytes) -> bool:
+    return _find_client_header_row(_load_grid(filename, raw)) is not None
 
 
-def parse_client_debit_credit(raw: bytes) -> list[TBEntry]:
-    wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
-    ws = wb.worksheets[0]
-    header_row_idx = _find_client_header_row(ws)
+def parse_client_debit_credit(filename: str, raw: bytes) -> list[TBEntry]:
+    grid = _load_grid(filename, raw)
+    header_row_idx = _find_client_header_row(grid)
     if header_row_idx is None:
         raise ValueError("Could not find a Full name/Debit/Credit header row.")
 
-    header_cells = next(ws.iter_rows(min_row=header_row_idx, max_row=header_row_idx))
-    headers = {str(c.value).strip().lower(): c.column for c in header_cells if c.value is not None}
-    name_col = headers.get("full name") or headers.get("account name") or headers.get("account")
-    debit_col = headers["debit"]
-    credit_col = headers["credit"]
+    header = [str(c).strip().lower() if c is not None else "" for c in grid[header_row_idx - 1]]
+
+    def col_index(*names: str) -> int | None:
+        for name in names:
+            if name in header:
+                return header.index(name)
+        return None
+
+    name_idx = col_index("full name", "account name", "account")
+    debit_idx = col_index("debit")
+    credit_idx = col_index("credit")
 
     entries: list[TBEntry] = []
-    for row in ws.iter_rows(min_row=header_row_idx + 1, max_row=ws.max_row):
-        name = row[name_col - 1].value
+    for row in grid[header_row_idx:]:
+        name = row[name_idx] if name_idx is not None and name_idx < len(row) else None
         if not name:
             continue
         name = str(name).strip()
         if name.upper() == "TOTAL":
             break
-        debit = _to_float(row[debit_col - 1].value) or 0.0
-        credit = _to_float(row[credit_col - 1].value) or 0.0
-        entries.append(TBEntry(account_name=name, balance=debit - credit))
+        debit = _to_float(row[debit_idx]) if debit_idx is not None and debit_idx < len(row) else None
+        credit = _to_float(row[credit_idx]) if credit_idx is not None and credit_idx < len(row) else None
+        entries.append(TBEntry(account_name=name, balance=(debit or 0.0) - (credit or 0.0)))
     return entries
 
 
@@ -264,6 +284,21 @@ def _pick_columns(df: pd.DataFrame) -> tuple[str, str]:
                 balance_col = col
                 break
     return name_col, balance_col
+
+
+def _generic_columns_confident(df: pd.DataFrame) -> bool:
+    """True only if both a name-like and a balance-like column were found by
+    keyword, not by falling back to 'first column' / 'last other column'."""
+    labels = [
+        str(c).strip().lower()
+        for c in df.columns
+        if not re.match(r"^unnamed:?\s*\d+$", str(c).strip().lower())
+    ]
+    name_found = any(any(k in label for k in ("account", "name", "description")) for label in labels)
+    balance_found = any(
+        any(k in label for k in ("balance", "amount", "debit", "credit", "net")) for label in labels
+    )
+    return name_found and balance_found
 
 
 def _rows_to_entries(df: pd.DataFrame) -> list[TBEntry]:
@@ -357,34 +392,205 @@ def parse_pasted_text(text: str) -> list[TBEntry]:
 
 
 # ---------------------------------------------------------------------------
+# Column-mapping fallback: for files that don't match any known shape, an
+# AI-suggested mapping (confirmed or corrected by the user) replaces the
+# heuristics entirely.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ColumnMapping:
+    header_row: int  # 1-indexed; 0 means there is no header row
+    name_col: int  # 1-indexed
+    code_col: int | None = None
+    balance_col: int | None = None
+    debit_col: int | None = None
+    credit_col: int | None = None
+    stop_text: str | None = None  # row whose name cell equals this (case-insensitive) ends the data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ColumnMapping":
+        return cls(
+            header_row=int(data["header_row"]),
+            name_col=int(data["name_col"]),
+            code_col=int(data["code_col"]) if data.get("code_col") else None,
+            balance_col=int(data["balance_col"]) if data.get("balance_col") else None,
+            debit_col=int(data["debit_col"]) if data.get("debit_col") else None,
+            credit_col=int(data["credit_col"]) if data.get("credit_col") else None,
+            stop_text=data.get("stop_text") or None,
+        )
+
+
+def parse_with_mapping(filename: str, raw: bytes, mapping: ColumnMapping) -> list[TBEntry]:
+    grid = _load_grid(filename, raw)
+
+    def cell(row: list, col: int | None):
+        if not col:
+            return None
+        idx = col - 1
+        return row[idx] if idx < len(row) else None
+
+    entries: list[TBEntry] = []
+    for row in grid[mapping.header_row :]:
+        name_val = cell(row, mapping.name_col)
+        if not name_val:
+            continue
+        name = str(name_val).strip()
+        if not name:
+            continue
+        if mapping.stop_text and name.lower() == mapping.stop_text.strip().lower():
+            break
+
+        if mapping.balance_col:
+            balance = _to_float(cell(row, mapping.balance_col))
+        else:
+            debit = _to_float(cell(row, mapping.debit_col)) or 0.0
+            credit = _to_float(cell(row, mapping.credit_col)) or 0.0
+            balance = debit - credit
+        if balance is None:
+            continue
+
+        code_val = cell(row, mapping.code_col)
+        entries.append(
+            TBEntry(
+                account_name=name,
+                balance=balance,
+                account_code=str(code_val).strip() if code_val else None,
+            )
+        )
+    return entries
+
+
+_FORMAT_DETECT_SYSTEM_PROMPT = """You are looking at the raw grid (rows x columns, as a JSON array of \
+arrays) of a trial balance export whose column headers could not be recognized automatically. Identify \
+which row is the header row, which column holds the account name, which holds either a single signed \
+balance or a debit/credit pair, which (optional) column holds an account code, and what exact text (if \
+any) marks a "total" row where the data ends.
+
+Respond with ONLY a JSON object of this shape:
+{
+  "header_row": <1-indexed row number, or 0 if there is no header row>,
+  "name_col": <1-indexed column number>,
+  "code_col": <1-indexed column number, or null>,
+  "balance_col": <1-indexed column number, or null — use this OR debit_col/credit_col, not both>,
+  "debit_col": <1-indexed column number, or null>,
+  "credit_col": <1-indexed column number, or null>,
+  "stop_text": "<exact text marking the end of data, e.g. 'TOTAL', or null>",
+  "confidence": 0-100
+}
+If you cannot confidently identify the account-name and balance columns, set confidence below 50.
+"""
+
+
+def _ai_detect_mapping(filename: str, raw: bytes) -> tuple[ColumnMapping | None, int]:
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None, 0
+    try:
+        import anthropic
+    except ImportError:
+        return None, 0
+
+    try:
+        grid = _load_grid(filename, raw)
+    except ValueError:
+        return None, 0
+
+    sample = grid[:40]
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=500,
+        system=_FORMAT_DETECT_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": json.dumps(sample, default=str)}],
+    )
+
+    text = "".join(block.text for block in response.content if block.type == "text")
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return None, 0
+        parsed = json.loads(match.group(0))
+
+    confidence = int(parsed.get("confidence", 0))
+    if parsed.get("header_row") is None or not parsed.get("name_col"):
+        return None, confidence
+
+    mapping = ColumnMapping(
+        header_row=int(parsed["header_row"]),
+        name_col=int(parsed["name_col"]),
+        code_col=parsed.get("code_col"),
+        balance_col=parsed.get("balance_col"),
+        debit_col=parsed.get("debit_col"),
+        credit_col=parsed.get("credit_col"),
+        stop_text=parsed.get("stop_text"),
+    )
+    return mapping, confidence
+
+
+def _inspect_unknown(filename: str, raw: bytes) -> dict:
+    grid = _load_grid(filename, raw)
+    preview = [[("" if c is None else str(c)) for c in row] for row in grid[:20]]
+    mapping, confidence = _ai_detect_mapping(filename, raw)
+    return {
+        "format": "unknown",
+        "grid_preview": preview,
+        "suggested_mapping": asdict(mapping) if mapping and confidence >= 50 else None,
+        "mapping_confidence": confidence,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Format auto-detection entry points
 # ---------------------------------------------------------------------------
 
 
 def inspect_upload(filename: str, raw: bytes) -> dict:
     """Inspect a file before full parsing: report detected format and, for audit
-    workpapers, the available balance columns to choose from."""
+    workpapers, the available balance columns to choose from. Falls back to an
+    AI-suggested column mapping (for the user to confirm or fix) when the file
+    doesn't match any recognized shape."""
     lower = filename.lower()
     if lower.endswith((".xlsx", ".xls")):
         audit_info = inspect_audit_workpaper(raw)
         if audit_info["is_audit_workpaper"]:
             return {"format": "audit_workpaper", **audit_info}
-        if is_client_debit_credit_format(raw):
+        if is_client_debit_credit_format(filename, raw):
             return {"format": "client_debit_credit"}
-        return {"format": "generic"}
+        if _generic_columns_confident(pd.read_excel(io.BytesIO(raw))):
+            return {"format": "generic"}
+        return _inspect_unknown(filename, raw)
+    if lower.endswith(".csv"):
+        if is_client_debit_credit_format(filename, raw):
+            return {"format": "client_debit_credit"}
+        if _generic_columns_confident(pd.read_csv(io.BytesIO(raw))):
+            return {"format": "generic"}
+        return _inspect_unknown(filename, raw)
     return {"format": "generic"}
 
 
-def parse_upload(filename: str, raw: bytes, balance_column: str | None = None) -> list[TBEntry]:
+def parse_upload(
+    filename: str,
+    raw: bytes,
+    balance_column: str | None = None,
+    mapping: dict | None = None,
+) -> list[TBEntry]:
+    if mapping is not None:
+        return parse_with_mapping(filename, raw, ColumnMapping.from_dict(mapping))
+
     lower = filename.lower()
     if lower.endswith((".xlsx", ".xls")):
         audit_info = inspect_audit_workpaper(raw)
         if audit_info["is_audit_workpaper"]:
             return parse_audit_workpaper(raw, balance_column=balance_column)
-        if is_client_debit_credit_format(raw):
-            return parse_client_debit_credit(raw)
+        if is_client_debit_credit_format(filename, raw):
+            return parse_client_debit_credit(filename, raw)
         return parse_excel_generic(raw)
     if lower.endswith(".csv"):
+        if is_client_debit_credit_format(filename, raw):
+            return parse_client_debit_credit(filename, raw)
         return parse_csv(raw)
     if lower.endswith(".pdf"):
         return parse_pdf(raw)

@@ -28,6 +28,26 @@
           </div>
           <input type="file" id="client_file" name="client_file" accept=".csv,.xlsx,.xls,.pdf" />
           <textarea id="client_text" name="client_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+          <div id="client-mapping-panel" class="mapping-panel" hidden>
+            <p class="mapping-note">Couldn't automatically detect the columns in this file.
+              <span class="ai-flag" hidden>AI suggested the mapping below — please verify before running.</span>
+              Confirm or fix it:</p>
+            <div class="grid-preview-wrap"><table class="grid-preview"><thead></thead><tbody></tbody></table></div>
+            <div class="mapping-fields">
+              <label>Header row <select class="map-header-row"></select></label>
+              <label>Account name column <select class="map-name-col"></select></label>
+              <label>Account code column (optional) <select class="map-code-col"></select></label>
+              <div class="balance-mode-toggle">
+                <button type="button" class="balance-mode-btn active" data-balance-mode="single">Single balance column</button>
+                <button type="button" class="balance-mode-btn" data-balance-mode="debit-credit">Debit / Credit columns</button>
+              </div>
+              <label class="balance-mode-field single">Balance column <select class="map-balance-col"></select></label>
+              <label class="balance-mode-field debit-credit" hidden>Debit column <select class="map-debit-col"></select></label>
+              <label class="balance-mode-field debit-credit" hidden>Credit column <select class="map-credit-col"></select></label>
+              <label>Stop at row where name equals (optional) <input type="text" class="map-stop-text" placeholder="TOTAL" /></label>
+            </div>
+            <input type="hidden" class="mapping-json-field" name="client_mapping" />
+          </div>
         </section>
 
         <section class="tb-input">
@@ -42,6 +62,26 @@
             <label>Balance column to compare
               <select id="balance_column" name="balance_column"></select>
             </label>
+          </div>
+          <div id="audit-mapping-panel" class="mapping-panel" hidden>
+            <p class="mapping-note">Couldn't automatically detect the columns in this file.
+              <span class="ai-flag" hidden>AI suggested the mapping below — please verify before running.</span>
+              Confirm or fix it:</p>
+            <div class="grid-preview-wrap"><table class="grid-preview"><thead></thead><tbody></tbody></table></div>
+            <div class="mapping-fields">
+              <label>Header row <select class="map-header-row"></select></label>
+              <label>Account name column <select class="map-name-col"></select></label>
+              <label>Account code column (optional) <select class="map-code-col"></select></label>
+              <div class="balance-mode-toggle">
+                <button type="button" class="balance-mode-btn active" data-balance-mode="single">Single balance column</button>
+                <button type="button" class="balance-mode-btn" data-balance-mode="debit-credit">Debit / Credit columns</button>
+              </div>
+              <label class="balance-mode-field single">Balance column <select class="map-balance-col"></select></label>
+              <label class="balance-mode-field debit-credit" hidden>Debit column <select class="map-debit-col"></select></label>
+              <label class="balance-mode-field debit-credit" hidden>Credit column <select class="map-credit-col"></select></label>
+              <label>Stop at row where name equals (optional) <input type="text" class="map-stop-text" placeholder="TOTAL" /></label>
+            </div>
+            <input type="hidden" class="mapping-json-field" name="audit_mapping" />
           </div>
         </section>
       </div>
