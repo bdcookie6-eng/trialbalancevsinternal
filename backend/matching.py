@@ -212,17 +212,38 @@ class ComparisonReport:
     notes: list[str] = field(default_factory=list)
 
 
-def _build_conclusion(material_count: int, only_client: int, only_audit: int, has_zero_only: bool) -> str:
+def _build_conclusion(
+    material_count: int,
+    only_client: int,
+    only_audit: int,
+    has_zero_only: bool,
+    matched_exact: int,
+    matched_fuzzy: int,
+    matched_ai: int,
+) -> str:
+    matched_total = matched_exact + matched_fuzzy + matched_ai
+    match_detail = ""
+    if matched_total:
+        breakdown = []
+        if matched_exact:
+            breakdown.append(f"{matched_exact} by exact name")
+        if matched_fuzzy:
+            breakdown.append(f"{matched_fuzzy} by close name match")
+        if matched_ai:
+            breakdown.append(f"{matched_ai} by AI-assisted cross-system mapping")
+        match_detail = f" {matched_total} account(s) were matched ({', '.join(breakdown)})."
+
     if material_count == 0 and only_client == 0 and only_audit == 0:
         text = (
-            "Every account carrying a balance ties between the two trial balances. "
-            "Both trial balances are in balance (total debits = total credits)."
+            "We're set! Every account carrying a balance ties between the two trial balances, "
+            "and both trial balances are in balance (total debits = total credits)."
+            + match_detail
         )
         if has_zero_only:
             text += " Remaining unmatched accounts are inactive $0 accounts that exist in only one chart of accounts."
         return text
 
-    parts = []
+    parts = [f"Not everything adds up yet.{match_detail} Here's what didn't tie out:"]
     if material_count:
         parts.append(
             f"{material_count} account(s) show a material difference (≥ $1) between the "
@@ -319,6 +340,9 @@ def build_comparison(
     has_zero_only = bool(remaining_internal or remaining_audited) and not (
         only_in_client_count or only_in_audit_count
     )
+    matched_exact = sum(1 for m in matched if m.method == "exact")
+    matched_fuzzy = sum(1 for m in matched if m.method == "fuzzy")
+    matched_ai = sum(1 for m in matched if m.method == "ai")
 
     notes = [
         "Client balances are shown signed (debit positive, credit negative) to match the audit column convention.",
@@ -336,6 +360,14 @@ def build_comparison(
         only_in_client_count=only_in_client_count,
         only_in_audit_count=only_in_audit_count,
         net_difference=net_difference,
-        conclusion=_build_conclusion(material_count, only_in_client_count, only_in_audit_count, has_zero_only),
+        conclusion=_build_conclusion(
+            material_count,
+            only_in_client_count,
+            only_in_audit_count,
+            has_zero_only,
+            matched_exact,
+            matched_fuzzy,
+            matched_ai,
+        ),
         notes=numbered_notes,
     )
