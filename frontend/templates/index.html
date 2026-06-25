@@ -9,30 +9,40 @@
 <body>
   <header>
     <h1>Trial Balance Reconciliation</h1>
-    <p class="subtitle">Confirm the client's internal trial balance matches the audited trial balance for the period.</p>
+    <p class="subtitle">Confirm the client's internal trial balance matches the audited working trial balance for the period.</p>
   </header>
 
   <main>
     <form id="reconcile-form">
+      <div class="meta-row">
+        <label>Client name <input type="text" id="client_name" name="client_name" placeholder="Peloton College, LLC" required /></label>
+        <label>Period label <input type="text" id="period_label" name="period_label" placeholder="December 31, 2025" required /></label>
+      </div>
+
       <div class="tb-columns">
         <section class="tb-input">
-          <h2>Internal Trial Balance</h2>
+          <h2>Client Records (Internal Trial Balance)</h2>
           <div class="mode-toggle">
-            <button type="button" class="mode-btn active" data-mode="file" data-target="internal">Upload file</button>
-            <button type="button" class="mode-btn" data-mode="text" data-target="internal">Paste data</button>
+            <button type="button" class="mode-btn active" data-mode="file" data-target="client">Upload file</button>
+            <button type="button" class="mode-btn" data-mode="text" data-target="client">Paste data</button>
           </div>
-          <input type="file" id="internal_file" name="internal_file" accept=".csv,.xlsx,.xls,.pdf" />
-          <textarea id="internal_text" name="internal_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+          <input type="file" id="client_file" name="client_file" accept=".csv,.xlsx,.xls,.pdf" />
+          <textarea id="client_text" name="client_text" placeholder="Paste account name / balance rows here" hidden></textarea>
         </section>
 
         <section class="tb-input">
-          <h2>Audited Trial Balance</h2>
+          <h2>Audit Working Trial Balance</h2>
           <div class="mode-toggle">
-            <button type="button" class="mode-btn active" data-mode="file" data-target="audited">Upload file</button>
-            <button type="button" class="mode-btn" data-mode="text" data-target="audited">Paste data</button>
+            <button type="button" class="mode-btn active" data-mode="file" data-target="audit">Upload file</button>
+            <button type="button" class="mode-btn" data-mode="text" data-target="audit">Paste data</button>
           </div>
-          <input type="file" id="audited_file" name="audited_file" accept=".csv,.xlsx,.xls,.pdf" />
-          <textarea id="audited_text" name="audited_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+          <input type="file" id="audit_file" name="audit_file" accept=".csv,.xlsx,.xls,.pdf" />
+          <textarea id="audit_text" name="audit_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+          <div id="column-picker" hidden>
+            <label>Balance column to compare
+              <select id="balance_column" name="balance_column"></select>
+            </label>
+          </div>
         </section>
       </div>
 
@@ -42,39 +52,44 @@
     <div id="status"></div>
 
     <section id="results" hidden>
-      <div class="summary-cards" id="summary-cards"></div>
+      <h2>Preview — Summary Sheet</h2>
+      <div class="sheet-preview" id="summary-preview">
+        <div class="sheet-title" id="preview-title"></div>
+        <div class="sheet-subtitle" id="preview-subtitle"></div>
+        <div class="sheet-period" id="preview-period"></div>
+        <div class="sheet-column" id="preview-column"></div>
 
-      <div class="results-actions">
-        <a id="download-link" href="#" download="trial_balance_reconciliation.xlsx">Download Excel workbook</a>
+        <table class="sheet-table">
+          <thead><tr><th>Result</th><th>Count / Amount</th></tr></thead>
+          <tbody id="summary-cards"></tbody>
+        </table>
+
+        <h3>Conclusion</h3>
+        <p id="preview-conclusion"></p>
+
+        <h3>Notes</h3>
+        <ol id="preview-notes"></ol>
       </div>
 
-      <h2>Matched Accounts</h2>
-      <table id="matched-table">
+      <h2>Preview — Comparison Sheet</h2>
+      <table id="comparison-table" class="sheet-table">
         <thead>
           <tr>
-            <th>Internal Account</th>
-            <th>Internal Balance</th>
-            <th>Audited Account</th>
-            <th>Audited Balance</th>
+            <th>Account Code</th>
+            <th>Account / Description</th>
+            <th>Per Client Records</th>
+            <th id="audit-col-header">Per Audited TB</th>
             <th>Difference</th>
-            <th>Method</th>
-            <th>Confidence</th>
+            <th>Notes</th>
           </tr>
         </thead>
         <tbody></tbody>
+        <tfoot><tr id="comparison-total"></tr></tfoot>
       </table>
 
-      <h2>Missing in Audited TB <span class="hint">(in internal records, no audited counterpart found)</span></h2>
-      <table id="missing-audited-table">
-        <thead><tr><th>Internal Account</th><th>Internal Balance</th></tr></thead>
-        <tbody></tbody>
-      </table>
-
-      <h2>Missing in Internal TB <span class="hint">(in audited records, no internal counterpart found)</span></h2>
-      <table id="missing-internal-table">
-        <thead><tr><th>Audited Account</th><th>Audited Balance</th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <div class="results-actions">
+        <a id="download-link" href="#" download="trial_balance_comparison.xlsx">Download Excel workbook</a>
+      </div>
     </section>
   </main>
 

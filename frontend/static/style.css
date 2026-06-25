@@ -31,10 +31,51 @@ main {
   padding: 1.5rem 2rem 3rem;
 }
 
+.meta-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.meta-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.meta-row input[type="text"] {
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: normal;
+}
+
 .tb-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
+}
+
+#column-picker {
+  margin-top: 0.75rem;
+}
+
+#column-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+#column-picker select {
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .tb-input {
@@ -137,3 +178,35 @@ tr.mismatch { background: #fdecea; }
 tr.ai-match { background: #fff8e1; }
 
 .hint { font-size: 0.8rem; color: #5a6472; font-weight: normal; }
+
+.sheet-preview {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.sheet-title { font-size: 1.3rem; font-weight: 700; }
+.sheet-subtitle { font-weight: 600; margin-top: 0.2rem; }
+.sheet-period, .sheet-column { color: #5a6472; margin-top: 0.1rem; }
+
+.sheet-table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--card-bg); }
+.sheet-table th, .sheet-table td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.9rem;
+  text-align: left;
+}
+.sheet-table th { background: var(--accent); color: white; }
+
+#summary-cards tr.row-good td:last-child { background: #c6efce; }
+#summary-cards tr.row-bad td:last-child { background: #ffc7ce; }
+
+#preview-conclusion { font-size: 0.95rem; }
+#preview-notes { font-size: 0.9rem; padding-left: 1.2rem; }
+
+#comparison-table tbody tr.mismatch { background: #fffff0; }
+#comparison-table tbody tr.mismatch td:nth-child(5) { background: #ffff00; }
+#comparison-table tbody tr.ai-match { background: #fff8e1; }
+#comparison-table tfoot td { background: #eef2f7; }

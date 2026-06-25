@@ -1,17 +1,16 @@
-"""FastAPI app: trial balance reconciliation (internal vs. audited)."""
+"""FastAPI app: trial balance reconciliation (client records vs. audit working TB)."""
 from __future__ import annotations
 
 import base64
-import io
 from pathlib import Path
 
-import pandas as pd
 from fastapi import FastAPI, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from matching import MatchReport, reconcile
-from parsing import TBEntry, parse_pasted_text, parse_upload
+from excel_export import build_workbook
+from matching import ComparisonReport, build_comparison
+from parsing import TBEntry, inspect_upload, parse_pasted_text, parse_upload
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "frontend" / "templates"
@@ -26,103 +25,75 @@ async def index() -> HTMLResponse:
     return HTMLResponse((TEMPLATES_DIR / "index.html").read_text())
 
 
-async def _load_entries(file: UploadFile | None, text: str | None) -> list[TBEntry]:
+@app.post("/api/inspect-audit")
+async def inspect_audit_endpoint(audit_file: UploadFile):
+    raw = await audit_file.read()
+    return inspect_upload(audit_file.filename, raw)
+
+
+async def _load_entries(
+    file: UploadFile | None, text: str | None, balance_column: str | None = None
+) -> list[TBEntry]:
     if file is not None and file.filename:
         raw = await file.read()
-        return parse_upload(file.filename, raw)
+        return parse_upload(file.filename, raw, balance_column=balance_column)
     if text:
         return parse_pasted_text(text)
     return []
 
 
-def _build_workbook(report: MatchReport) -> bytes:
-    matched_rows = [
-        {
-            "Internal Account": m.internal_name,
-            "Internal Balance": m.internal_balance,
-            "Audited Account": m.audited_name,
-            "Audited Balance": m.audited_balance,
-            "Difference": m.difference,
-            "Balances Agree": m.balances_agree,
-            "Match Method": m.method,
-            "Confidence": m.confidence,
-            "Rationale": m.rationale,
-        }
-        for m in report.matched
-    ]
-    missing_audited_rows = [
-        {"Internal Account": m.internal_name, "Internal Balance": m.internal_balance}
-        for m in report.missing_in_audited
-    ]
-    missing_internal_rows = [
-        {"Audited Account": m.audited_name, "Audited Balance": m.audited_balance}
-        for m in report.missing_in_internal
-    ]
-
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        pd.DataFrame(matched_rows).to_excel(writer, sheet_name="Matched", index=False)
-        pd.DataFrame(missing_audited_rows).to_excel(
-            writer, sheet_name="Missing in Audited", index=False
-        )
-        pd.DataFrame(missing_internal_rows).to_excel(
-            writer, sheet_name="Missing in Internal", index=False
-        )
-    return buffer.getvalue()
-
-
-def _report_to_json(report: MatchReport) -> dict:
+def _report_to_json(report: ComparisonReport) -> dict:
     return {
-        "matched": [
-            {
-                "internal_name": m.internal_name,
-                "internal_balance": m.internal_balance,
-                "audited_name": m.audited_name,
-                "audited_balance": m.audited_balance,
-                "difference": m.difference,
-                "balances_agree": m.balances_agree,
-                "method": m.method,
-                "confidence": m.confidence,
-                "rationale": m.rationale,
-            }
-            for m in report.matched
-        ],
-        "missing_in_audited": [
-            {"internal_name": m.internal_name, "internal_balance": m.internal_balance}
-            for m in report.missing_in_audited
-        ],
-        "missing_in_internal": [
-            {"audited_name": m.audited_name, "audited_balance": m.audited_balance}
-            for m in report.missing_in_internal
-        ],
+        "compared_column": report.compared_column,
         "summary": {
-            "matched_count": len(report.matched),
-            "missing_in_audited_count": len(report.missing_in_audited),
-            "missing_in_internal_count": len(report.missing_in_internal),
-            "balance_mismatches": sum(
-                1 for m in report.matched if m.balances_agree is False
-            ),
+            "accounts_compared": report.accounts_compared,
+            "accounts_tied": report.accounts_tied,
+            "material_count": report.material_count,
+            "only_in_client_count": report.only_in_client_count,
+            "only_in_audit_count": report.only_in_audit_count,
+            "net_difference": report.net_difference,
         },
+        "conclusion": report.conclusion,
+        "notes": report.notes,
+        "rows": [
+            {
+                "account_code": r.account_code,
+                "account_name": r.account_name,
+                "client_balance": r.client_balance,
+                "audit_balance": r.audit_balance,
+                "difference": r.difference,
+                "method": r.method,
+                "note": r.note,
+                "is_material": r.is_material,
+            }
+            for r in report.rows
+        ],
     }
 
 
 @app.post("/api/reconcile")
 async def reconcile_endpoint(
-    internal_file: UploadFile | None = None,
-    audited_file: UploadFile | None = None,
-    internal_text: str | None = Form(default=None),
-    audited_text: str | None = Form(default=None),
+    client_file: UploadFile | None = None,
+    audit_file: UploadFile | None = None,
+    client_text: str | None = Form(default=None),
+    audit_text: str | None = Form(default=None),
+    balance_column: str | None = Form(default=None),
+    client_name: str = Form(default="Client"),
+    period_label: str = Form(default=""),
 ):
-    internal_entries = await _load_entries(internal_file, internal_text)
-    audited_entries = await _load_entries(audited_file, audited_text)
+    client_entries = await _load_entries(client_file, client_text)
+    audit_entries = await _load_entries(audit_file, audit_text, balance_column=balance_column)
 
-    if not internal_entries or not audited_entries:
+    if not client_entries or not audit_entries:
         return {
             "error": "Could not extract any accounts from one or both trial balances. "
             "Check the uploaded file or pasted data."
         }
 
-    report = reconcile(internal_entries, audited_entries)
+    compared_column = balance_column or (audit_file.filename if audit_file else "Audited Balance")
+    report = build_comparison(client_entries, audit_entries, compared_column)
+
     result = _report_to_json(report)
-    result["workbook_base64"] = base64.b64encode(_build_workbook(report)).decode("ascii")
+    workbook_bytes = build_workbook(report, client_name, period_label)
+    result["workbook_base64"] = base64.b64encode(workbook_bytes).decode("ascii")
     return result

@@ -1,4 +1,10 @@
-"""Hybrid matching: rapidfuzz for clear matches, Claude API for ambiguous ones."""
+"""Hybrid matching: rapidfuzz for clear matches, Claude API for ambiguous ones.
+
+Produces a Summary + Comparison report shaped like a standard audit tie-out memo:
+a result/health-check summary (counts, conclusion, notes) plus a per-account detail
+table ordered by the audited trial balance, with unmatched client-only accounts
+appended at the end and a TOTAL row.
+"""
 from __future__ import annotations
 
 import json
@@ -10,42 +16,23 @@ from rapidfuzz import fuzz, process
 
 from parsing import TBEntry
 
-FUZZY_AUTO_THRESHOLD = 90  # auto-accept above this score
+FUZZY_AUTO_THRESHOLD = 90  # auto-accept above this score, no AI needed
 FUZZY_CANDIDATE_THRESHOLD = 55  # below this, don't even bother asking the AI
-BALANCE_TOLERANCE = 0.01
+MATERIAL_THRESHOLD = 1.0  # dollars; differences under this are rounding noise
 
 _STOPWORDS = {"the", "and", "of", "a"}
 
 
 @dataclass
-class MatchResult:
-    internal_name: str | None
-    internal_balance: float | None
-    audited_name: str | None
-    audited_balance: float | None
-    method: str  # exact | fuzzy | ai | unmatched
-    confidence: int | None
+class _RawMatch:
+    internal_name: str
+    internal_balance: float
+    audited_name: str
+    audited_balance: float
+    audited_code: str | None
+    method: str  # exact | fuzzy | ai
+    confidence: int
     rationale: str | None = None
-
-    @property
-    def difference(self) -> float | None:
-        if self.internal_balance is None or self.audited_balance is None:
-            return None
-        return round(self.internal_balance - self.audited_balance, 2)
-
-    @property
-    def balances_agree(self) -> bool | None:
-        diff = self.difference
-        if diff is None:
-            return None
-        return abs(diff) <= BALANCE_TOLERANCE
-
-
-@dataclass
-class MatchReport:
-    matched: list[MatchResult] = field(default_factory=list)
-    missing_in_audited: list[MatchResult] = field(default_factory=list)
-    missing_in_internal: list[MatchResult] = field(default_factory=list)
 
 
 def _normalize(name: str) -> str:
@@ -57,7 +44,7 @@ def _normalize(name: str) -> str:
 
 def _fuzzy_pass(
     internal: list[TBEntry], audited: list[TBEntry]
-) -> tuple[list[MatchResult], list[TBEntry], list[TBEntry]]:
+) -> tuple[list[_RawMatch], list[TBEntry], list[TBEntry]]:
     norm_internal = [_normalize(e.account_name) for e in internal]
     norm_audited = [_normalize(e.account_name) for e in audited]
 
@@ -75,7 +62,7 @@ def _fuzzy_pass(
     candidates.sort(key=lambda c: -c[0])
     used_internal: set[int] = set()
     used_audited: set[int] = set()
-    matched: list[MatchResult] = []
+    matched: list[_RawMatch] = []
 
     for score, i, j in candidates:
         if i in used_internal or j in used_audited:
@@ -86,11 +73,12 @@ def _fuzzy_pass(
         used_audited.add(j)
         method = "exact" if score == 100 else "fuzzy"
         matched.append(
-            MatchResult(
+            _RawMatch(
                 internal_name=internal[i].account_name,
                 internal_balance=internal[i].balance,
                 audited_name=audited[j].account_name,
                 audited_balance=audited[j].balance,
+                audited_code=audited[j].account_code,
                 method=method,
                 confidence=int(score),
             )
@@ -103,16 +91,19 @@ def _fuzzy_pass(
 
 _AI_SYSTEM_PROMPT = """You are an audit assistant reconciling two trial balances that use \
 different account naming conventions (e.g. one client's internal chart of accounts vs. the \
-auditor's adjusted trial balance). You are given a list of unmatched internal accounts and a \
-list of unmatched audited accounts. Match accounts that clearly represent the same underlying \
-general ledger account, even if named differently (abbreviations, reordering, synonyms, \
-sub-account rollups). Do NOT force a match if no reasonable counterpart exists — leaving an \
-account unmatched is correct when it is genuinely missing from the other side.
+auditor's working trial balance). You are given a list of unmatched internal/client accounts \
+and a list of unmatched audited accounts. Match accounts that clearly represent the same \
+underlying general ledger account, even if named completely differently — including cases where \
+a short audit label (e.g. "Depreciation of Equipment") maps to a deeply nested client account \
+path (e.g. "Educational Expenses:Occupancy Expense:Facility Depreciation Expense"). Use account \
+balances as supporting evidence: if two unmatched accounts have the same or very similar balance, \
+that strengthens the case for a match. Do NOT force a match if no reasonable counterpart exists — \
+leaving an account unmatched is correct when it is genuinely missing from the other side.
 
 Respond with ONLY a JSON object of this shape:
 {
   "matches": [
-    {"internal": "<exact internal name>", "audited": "<exact audited name>", "confidence": 0-100, "rationale": "<short reason>"}
+    {"internal": "<exact internal account name>", "audited": "<exact audited account name>", "confidence": 0-100, "rationale": "<short reason>"}
   ]
 }
 Only include pairs you are reasonably confident represent the same account (confidence >= 60). \
@@ -120,7 +111,7 @@ Do not include unmatched accounts in the output.
 """
 
 
-def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[MatchResult]:
+def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]:
     if not internal or not audited:
         return []
 
@@ -135,8 +126,12 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[MatchResul
 
     client = anthropic.Anthropic(api_key=api_key)
     user_payload = {
-        "unmatched_internal_accounts": [e.account_name for e in internal],
-        "unmatched_audited_accounts": [e.account_name for e in audited],
+        "unmatched_internal_accounts": [
+            {"name": e.account_name, "balance": e.balance} for e in internal
+        ],
+        "unmatched_audited_accounts": [
+            {"name": e.account_name, "balance": e.balance} for e in audited
+        ],
     }
 
     response = client.messages.create(
@@ -158,18 +153,19 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[MatchResul
     internal_by_name = {e.account_name: e for e in internal}
     audited_by_name = {e.account_name: e for e in audited}
 
-    results: list[MatchResult] = []
+    results: list[_RawMatch] = []
     for pair in parsed.get("matches", []):
         in_entry = internal_by_name.get(pair.get("internal"))
         au_entry = audited_by_name.get(pair.get("audited"))
         if in_entry is None or au_entry is None:
             continue
         results.append(
-            MatchResult(
+            _RawMatch(
                 internal_name=in_entry.account_name,
                 internal_balance=in_entry.balance,
                 audited_name=au_entry.account_name,
                 audited_balance=au_entry.balance,
+                audited_code=au_entry.account_code,
                 method="ai",
                 confidence=int(pair.get("confidence", 60)),
                 rationale=pair.get("rationale"),
@@ -178,9 +174,78 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[MatchResul
     return results
 
 
-def reconcile(internal: list[TBEntry], audited: list[TBEntry]) -> MatchReport:
-    matched, remaining_internal, remaining_audited = _fuzzy_pass(internal, audited)
+@dataclass
+class ComparisonRow:
+    account_code: str | None
+    account_name: str
+    client_balance: float | None
+    audit_balance: float | None
+    method: str  # exact | fuzzy | ai | audit_only | client_only
+    note: str | None = None
 
+    @property
+    def difference(self) -> float:
+        client = self.client_balance if self.client_balance is not None else 0.0
+        audit = self.audit_balance if self.audit_balance is not None else 0.0
+        return round(client - audit, 2)
+
+    @property
+    def is_material(self) -> bool:
+        return abs(self.difference) >= MATERIAL_THRESHOLD
+
+
+def _leaf(name: str) -> str:
+    return name.split(":")[-1].strip()
+
+
+@dataclass
+class ComparisonReport:
+    rows: list[ComparisonRow]
+    compared_column: str
+    accounts_compared: int
+    accounts_tied: int
+    material_count: int
+    only_in_client_count: int
+    only_in_audit_count: int
+    net_difference: float
+    conclusion: str
+    notes: list[str] = field(default_factory=list)
+
+
+def _build_conclusion(material_count: int, only_client: int, only_audit: int, has_zero_only: bool) -> str:
+    if material_count == 0 and only_client == 0 and only_audit == 0:
+        text = (
+            "Every account carrying a balance ties between the two trial balances. "
+            "Both trial balances are in balance (total debits = total credits)."
+        )
+        if has_zero_only:
+            text += " Remaining unmatched accounts are inactive $0 accounts that exist in only one chart of accounts."
+        return text
+
+    parts = []
+    if material_count:
+        parts.append(
+            f"{material_count} account(s) show a material difference (≥ $1) between the "
+            "client records and the audited trial balance."
+        )
+    if only_client:
+        parts.append(
+            f"{only_client} account(s) carry a balance only in the client's records and are "
+            "missing from the audited trial balance."
+        )
+    if only_audit:
+        parts.append(
+            f"{only_audit} account(s) carry a balance only on the audited trial balance and are "
+            "missing from the client's records."
+        )
+    parts.append("These should be investigated before relying on the trial balance tie-out.")
+    return " ".join(parts)
+
+
+def build_comparison(
+    internal: list[TBEntry], audited: list[TBEntry], compared_column: str
+) -> ComparisonReport:
+    matched, remaining_internal, remaining_audited = _fuzzy_pass(internal, audited)
     ai_matched = _ai_pass(remaining_internal, remaining_audited)
     matched.extend(ai_matched)
 
@@ -189,27 +254,88 @@ def reconcile(internal: list[TBEntry], audited: list[TBEntry]) -> MatchReport:
     remaining_internal = [e for e in remaining_internal if e.account_name not in ai_internal_names]
     remaining_audited = [e for e in remaining_audited if e.account_name not in ai_audited_names]
 
-    report = MatchReport(matched=matched)
-    report.missing_in_audited = [
-        MatchResult(
-            internal_name=e.account_name,
-            internal_balance=e.balance,
-            audited_name=None,
-            audited_balance=None,
-            method="unmatched",
-            confidence=None,
+    audited_order = {e.account_name: idx for idx, e in enumerate(audited)}
+
+    rows: list[ComparisonRow] = []
+    mapping_notes: list[str] = []
+
+    for m in matched:
+        note = None
+        if m.method == "ai":
+            note = f'Mapped to client account "{m.internal_name}"'
+            mapping_notes.append(
+                f'${m.audited_balance:,.0f} balance maps across systems: client '
+                f'"{_leaf(m.internal_name)}" = audit "{_leaf(m.audited_name)}".'
+            )
+        rows.append(
+            ComparisonRow(
+                account_code=m.audited_code,
+                account_name=m.audited_name,
+                client_balance=m.internal_balance,
+                audit_balance=m.audited_balance,
+                method=m.method,
+                note=note,
+            )
         )
-        for e in remaining_internal
-    ]
-    report.missing_in_internal = [
-        MatchResult(
-            internal_name=None,
-            internal_balance=None,
-            audited_name=e.account_name,
-            audited_balance=e.balance,
-            method="unmatched",
-            confidence=None,
+
+    audit_only_rows = [
+        ComparisonRow(
+            account_code=e.account_code,
+            account_name=e.account_name,
+            client_balance=None,
+            audit_balance=e.balance,
+            method="audit_only",
+            note="Not in client records",
         )
         for e in remaining_audited
     ]
-    return report
+
+    # Matched + audit-only rows follow the original audit workpaper order.
+    ordered = sorted(
+        rows + audit_only_rows,
+        key=lambda r: audited_order.get(r.account_name, len(audited_order)),
+    )
+
+    client_only_rows = [
+        ComparisonRow(
+            account_code=None,
+            account_name=e.account_name,
+            client_balance=e.balance,
+            audit_balance=None,
+            method="client_only",
+            note="Not on audit working trial balance",
+        )
+        for e in remaining_internal
+    ]
+
+    all_rows = ordered + client_only_rows
+
+    accounts_compared = len(matched)
+    accounts_tied = sum(1 for m in matched if abs(m.internal_balance - m.audited_balance) < MATERIAL_THRESHOLD)
+    material_count = accounts_compared - accounts_tied
+    only_in_client_count = sum(1 for e in remaining_internal if abs(e.balance) >= 0.005)
+    only_in_audit_count = sum(1 for e in remaining_audited if abs(e.balance) >= 0.005)
+    net_difference = round(sum(r.difference for r in all_rows), 2)
+    has_zero_only = bool(remaining_internal or remaining_audited) and not (
+        only_in_client_count or only_in_audit_count
+    )
+
+    notes = [
+        "Client balances are shown signed (debit positive, credit negative) to match the audit column convention.",
+        f'The "{compared_column}" column differences under $1 are treated as rounding, not material.',
+    ]
+    notes.extend(mapping_notes)
+    numbered_notes = [f"{i}. {n}" for i, n in enumerate(notes, start=1)]
+
+    return ComparisonReport(
+        rows=all_rows,
+        compared_column=compared_column,
+        accounts_compared=accounts_compared,
+        accounts_tied=accounts_tied,
+        material_count=material_count,
+        only_in_client_count=only_in_client_count,
+        only_in_audit_count=only_in_audit_count,
+        net_difference=net_difference,
+        conclusion=_build_conclusion(material_count, only_in_client_count, only_in_audit_count, has_zero_only),
+        notes=numbered_notes,
+    )
