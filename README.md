@@ -37,18 +37,25 @@ flags everything the fuzzy matcher couldn't resolve as missing on one side.
 
 - **Audit working trial balance**: a Code / Account / Description header row plus one or
   more balance columns (Unadjusted, Adjusted, "Report <date>", ...). The UI lets you pick
-  which balance column to compare once a file is uploaded (`/api/inspect-audit`). Category
+  which balance column to compare once a file is uploaded (`/api/inspect`). Category
   header rows and "<code> Total" subtotal rows are excluded automatically — using a hidden
   tag column (e.g. "System Type") when present, or a heuristic fallback otherwise.
-- **Client trial balance export**: a Full name / Debit / Credit header row, netted into a
-  signed balance (Debit − Credit), terminated by a "TOTAL" row.
+- **Client trial balance export**: a Full name / Debit / Credit header row (XLSX or CSV),
+  netted into a signed balance (Debit − Credit), terminated by a "TOTAL" row.
 - **Generic CSV/XLSX/PDF/pasted text**: a single name column and a single balance column,
   guessed from headers.
+- **Anything else**: if none of the above match with confidence, the file falls back to a
+  manual mapping flow — the AI pass proposes a header row + column mapping when an
+  `ANTHROPIC_API_KEY` is set, and the UI always shows a grid preview with column pickers
+  (header row, name/code/balance or debit/credit columns, an optional stop-row marker) so
+  you can confirm or correct the mapping before running the reconciliation.
 
 ## How it works
 
 - `backend/parsing.py` — detects the format of each upload (`inspect_upload`) and extracts
   `(account_name, balance, account_code)` rows (`parse_upload` / `parse_pasted_text`).
+  Unrecognized files get a grid preview plus an AI-suggested or user-supplied column
+  mapping (`ColumnMapping` / `parse_with_mapping`) instead of being dropped.
 - `backend/matching.py` — runs the hybrid rapidfuzz → Claude matching pipeline
   (`build_comparison`) and produces a `ComparisonReport`: matched/unmatched rows, balance
   differences, summary counts, a plain-English conclusion, and supporting notes.
@@ -57,13 +64,15 @@ flags everything the fuzzy matcher couldn't resolve as missing on one side.
   conclusion, notes) and Comparison (per-account detail with conditional formatting on
   material differences and a TOTAL row).
 - `backend/main.py` — FastAPI app: serves the UI and exposes:
-  - `POST /api/inspect-audit` — upload the audit file, get back the detected balance
-    columns so the UI can offer a picker before reconciling.
+  - `POST /api/inspect` — upload either file, get back its detected format: audit balance
+    columns to pick from, or (for unrecognized files) a grid preview and suggested mapping.
   - `POST /api/reconcile` — runs the full pipeline and returns the same JSON used to
     render the in-app preview plus a base64-encoded Excel workbook, so what you preview
-    and what you download are guaranteed identical.
+    and what you download are guaranteed identical. Accepts an optional `client_mapping` /
+    `audit_mapping` JSON field to override detection for unrecognized files.
 - `frontend/` — single-page UI: client name/period inputs, upload-or-paste inputs for each
-  trial balance, a balance-column picker for audit workpapers, a Summary/Comparison sheet
-  preview, and a download button for the matching workbook.
+  trial balance, a balance-column picker for audit workpapers, a manual column-mapping
+  panel for unrecognized files, a Summary/Comparison sheet preview, and a download button
+  for the matching workbook.
 
 Nothing is persisted server-side — each run is stateless.
