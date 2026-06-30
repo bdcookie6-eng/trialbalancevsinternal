@@ -627,6 +627,48 @@ def detect_period_label(filename: str, header_hints: list[str] | None = None) ->
 
 
 # ---------------------------------------------------------------------------
+# Client name detection: pulled from the filename, stripping off whatever
+# trial-balance/audit/date boilerplate follows the company name — so the UI
+# can auto-fill the Client name field instead of making the user retype it.
+# ---------------------------------------------------------------------------
+
+_NAME_CUT_RE = re.compile(
+    r"(working\s*trial\s*balance|trial\s*balance|\bwtb\b|\btb\b|\baudit\b|\breport\b|\bper\b)",
+    re.IGNORECASE,
+)
+_ENTITY_SUFFIX_RE = re.compile(r"\s+(LLC|L\.L\.C\.|INC|CORP|CO|LTD|LP|LLP)\.?$", re.IGNORECASE)
+
+
+def detect_client_name(filename: str) -> str | None:
+    stem = re.sub(r"\.[a-zA-Z0-9]+$", "", filename)
+
+    cut_idx = None
+    cut_match = _NAME_CUT_RE.search(stem)
+    if cut_match:
+        cut_idx = cut_match.start()
+    for pattern in _DATE_PATTERNS:
+        date_match = pattern.search(stem)
+        if date_match:
+            cut_idx = date_match.start() if cut_idx is None else min(cut_idx, date_match.start())
+
+    if cut_idx is None or cut_idx == 0:
+        # No recognizable boilerplate to strip off — too risky to guess a
+        # company name out of an arbitrary filename.
+        return None
+
+    candidate = stem[:cut_idx].replace("_", " ").replace("-", " ")
+    candidate = re.sub(r"\s+", " ", candidate).strip(" ,-_")
+    if not candidate or len(candidate) < 2:
+        return None
+
+    suffix_match = _ENTITY_SUFFIX_RE.search(candidate)
+    if suffix_match and "," not in candidate[: suffix_match.start() + 1]:
+        candidate = candidate[: suffix_match.start()] + "," + candidate[suffix_match.start() :]
+
+    return candidate
+
+
+# ---------------------------------------------------------------------------
 # Format auto-detection entry points
 # ---------------------------------------------------------------------------
 
@@ -636,6 +678,13 @@ def inspect_upload(filename: str, raw: bytes) -> dict:
     workpapers, the available balance columns to choose from. Falls back to an
     AI-suggested column mapping (for the user to confirm or fix) when the file
     doesn't match any recognized shape."""
+    result = _detect_upload_format(filename, raw)
+    if result.get("format") not in ("error", "unsupported"):
+        result["detected_client_name"] = detect_client_name(filename)
+    return result
+
+
+def _detect_upload_format(filename: str, raw: bytes) -> dict:
     lower = filename.lower()
     if lower.endswith((".xlsx", ".xls")):
         audit_info = inspect_audit_workpaper(raw)

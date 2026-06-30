@@ -5,4 +5,4 @@ pandas==2.2.2
 openpyxl==3.1.5
 pdfplumber==0.11.4
 rapidfuzz==3.9.6
-anthropic==0.34.2
+anthropic==0.69.0

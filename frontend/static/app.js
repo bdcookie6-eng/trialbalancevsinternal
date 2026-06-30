@@ -185,6 +185,12 @@ async function handleFileInspect(target, file) {
         periodInput.value = info.detected_date;
       }
     }
+    if (info.detected_client_name) {
+      const clientNameInput = document.getElementById("client_name");
+      if (!clientNameInput.value.trim()) {
+        clientNameInput.value = info.detected_client_name;
+      }
+    }
   } catch (err) {
     if (target === "audit") columnPicker.hidden = true;
     mappingPanels[target].hide();
