@@ -26,7 +26,14 @@
             <button type="button" class="mode-btn active" data-mode="file" data-target="client">Upload file</button>
             <button type="button" class="mode-btn" data-mode="text" data-target="client">Paste data</button>
           </div>
-          <input type="file" id="client_file" name="client_file" accept=".csv,.xlsx,.xls,.pdf" />
+          <div class="dropzone" id="client-dropzone">
+            <input type="file" id="client_file" name="client_file" accept=".csv,.xlsx,.xls,.pdf" />
+            <div class="dropzone-label">
+              <span class="dropzone-icon">📄</span>
+              <span class="dropzone-text">Drag &amp; drop a file here, or click to browse</span>
+              <span class="dropzone-filename"></span>
+            </div>
+          </div>
           <textarea id="client_text" name="client_text" placeholder="Paste account name / balance rows here" hidden></textarea>
           <div id="client-mapping-panel" class="mapping-panel" hidden>
             <p class="mapping-note">Couldn't automatically detect the columns in this file.
@@ -56,7 +63,14 @@
             <button type="button" class="mode-btn active" data-mode="file" data-target="audit">Upload file</button>
             <button type="button" class="mode-btn" data-mode="text" data-target="audit">Paste data</button>
           </div>
-          <input type="file" id="audit_file" name="audit_file" accept=".csv,.xlsx,.xls,.pdf" />
+          <div class="dropzone" id="audit-dropzone">
+            <input type="file" id="audit_file" name="audit_file" accept=".csv,.xlsx,.xls,.pdf" />
+            <div class="dropzone-label">
+              <span class="dropzone-icon">📄</span>
+              <span class="dropzone-text">Drag &amp; drop a file here, or click to browse</span>
+              <span class="dropzone-filename"></span>
+            </div>
+          </div>
           <textarea id="audit_text" name="audit_text" placeholder="Paste account name / balance rows here" hidden></textarea>
           <div id="column-picker" hidden>
             <label>Balance column to compare

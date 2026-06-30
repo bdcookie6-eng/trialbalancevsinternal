@@ -189,6 +189,48 @@ async function handleFileInspect(target, file) {
 clientFileInput.addEventListener("change", () => handleFileInspect("client", clientFileInput.files[0]));
 auditFileInput.addEventListener("change", () => handleFileInspect("audit", auditFileInput.files[0]));
 
+function setupDropzone(target, input) {
+  const zone = document.getElementById(`${target}-dropzone`);
+  const filenameEl = zone.querySelector(".dropzone-filename");
+
+  function showFile(file) {
+    zone.classList.toggle("has-file", !!file);
+    filenameEl.textContent = file ? file.name : "";
+  }
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    zone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add("dragover");
+    })
+  );
+
+  ["dragleave", "dragend"].forEach((evt) =>
+    zone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove("dragover");
+    })
+  );
+
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    zone.classList.remove("dragover");
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    input.files = e.dataTransfer.files;
+    showFile(file);
+    handleFileInspect(target, file);
+  });
+
+  input.addEventListener("change", () => showFile(input.files[0]));
+}
+
+setupDropzone("client", clientFileInput);
+setupDropzone("audit", auditFileInput);
+
 function renderSummaryPreview(data) {
   document.getElementById("preview-title").textContent = document.getElementById("client_name").value;
   document.getElementById("preview-subtitle").textContent =

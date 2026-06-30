@@ -201,6 +201,59 @@ textarea {
 
 input[type="file"] { width: 100%; }
 
+.dropzone {
+  position: relative;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 1.5rem 1rem;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: #eaf2fa;
+}
+
+.dropzone.has-file {
+  border-style: solid;
+  border-color: var(--ok);
+  background: #f1faf3;
+}
+
+.dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dropzone-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  pointer-events: none;
+}
+
+.dropzone-icon { font-size: 1.5rem; }
+
+.dropzone-text {
+  font-size: 0.85rem;
+  color: #5a6472;
+}
+
+.dropzone-filename {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.dropzone.has-file .dropzone-text { display: none; }
+
 #run-btn {
   margin-top: 1.5rem;
   padding: 0.7rem 1.5rem;
