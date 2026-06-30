@@ -1,6 +1,13 @@
-"""FastAPI app: trial balance reconciliation (client records vs. audit working TB)."""
+"""FastAPI app: trial balance reconciliation (client records vs. audit working TB).
+
+Nothing here is persisted: uploads are read into memory, processed, and discarded
+once the response is sent. No database, no disk writes, no server-side logging of
+account data. The no-store middleware below also stops browsers/proxies from
+caching responses that contain client balances.
+"""
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from pathlib import Path
@@ -19,6 +26,15 @@ STATIC_DIR = BASE_DIR / "frontend" / "static"
 
 app = FastAPI(title="Trial Balance Reconciliation")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def no_store_for_api(request, call_next):
+    """Never let a response carrying account data be cached anywhere."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -109,9 +125,9 @@ async def reconcile_endpoint(
     period_label: str = Form(default=""),
 ):
     try:
-        client_entries = await _load_entries(client_file, client_text, mapping_json=client_mapping)
-        audit_entries = await _load_entries(
-            audit_file, audit_text, balance_column=balance_column, mapping_json=audit_mapping
+        client_entries, audit_entries = await asyncio.gather(
+            _load_entries(client_file, client_text, mapping_json=client_mapping),
+            _load_entries(audit_file, audit_text, balance_column=balance_column, mapping_json=audit_mapping),
         )
     except ReconcileInputError as exc:
         return {"error": str(exc)}

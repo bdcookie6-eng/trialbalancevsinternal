@@ -15,8 +15,14 @@
   <main>
     <form id="reconcile-form">
       <div class="meta-row">
-        <label>Client name <input type="text" id="client_name" name="client_name" placeholder="Peloton College, LLC" required /></label>
-        <label>Period label <input type="text" id="period_label" name="period_label" placeholder="December 31, 2025" required /></label>
+        <label>Client name
+          <input type="text" id="client_name" name="client_name" placeholder="Peloton College, LLC" required />
+          <span class="field-error" id="client_name-error"></span>
+        </label>
+        <label>Period label
+          <input type="text" id="period_label" name="period_label" placeholder="December 31, 2025" required />
+          <span class="field-error" id="period_label-error"></span>
+        </label>
       </div>
 
       <div class="tb-columns">
@@ -35,6 +41,7 @@
             </div>
           </div>
           <textarea id="client_text" name="client_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+          <span class="field-error" id="client-error"></span>
           <div id="client-mapping-panel" class="mapping-panel" hidden>
             <p class="mapping-note">Couldn't automatically detect the columns in this file.
               <span class="ai-flag" hidden>AI suggested the mapping below — please verify before running.</span>
@@ -72,6 +79,7 @@
             </div>
           </div>
           <textarea id="audit_text" name="audit_text" placeholder="Paste account name / balance rows here" hidden></textarea>
+          <span class="field-error" id="audit-error"></span>
           <div id="column-picker" hidden>
             <label>Balance column to compare
               <select id="balance_column" name="balance_column"></select>
@@ -104,6 +112,7 @@
     </form>
 
     <div id="status"></div>
+    <div id="progress-bar" hidden><div id="progress-bar-fill"></div></div>
 
     <section id="results" hidden>
       <h2>Preview — Summary Sheet</h2>

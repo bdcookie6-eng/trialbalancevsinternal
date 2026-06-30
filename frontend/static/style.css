@@ -270,6 +270,34 @@ input[type="file"] { width: 100%; }
 #status { margin-top: 1rem; font-size: 0.95rem; }
 #status.error { color: var(--danger); }
 
+.field-error {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: normal;
+  color: var(--danger);
+  min-height: 1em;
+  margin-top: 0.2rem;
+}
+
+input.invalid, .dropzone.invalid {
+  border-color: var(--danger) !important;
+}
+
+#progress-bar {
+  margin-top: 0.75rem;
+  height: 6px;
+  border-radius: 3px;
+  background: #e5eaf0;
+  overflow: hidden;
+}
+
+#progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
 .summary-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

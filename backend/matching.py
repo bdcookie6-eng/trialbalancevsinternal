@@ -111,20 +111,12 @@ Do not include unmatched accounts in the output.
 """
 
 
-def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]:
-    if not internal or not audited:
-        return []
+_AI_BATCH_SIZE = 40  # accounts per side, per call — keeps prompts fast and well within token limits
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return []
 
-    try:
-        import anthropic
-    except ImportError:
-        return []
-
-    client = anthropic.Anthropic(api_key=api_key)
+def _ai_pass_single(
+    client, internal: list[TBEntry], audited: list[TBEntry]
+) -> list[_RawMatch]:
     user_payload = {
         "unmatched_internal_accounts": [
             {"name": e.account_name, "balance": e.balance} for e in internal
@@ -171,6 +163,37 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]
                 rationale=pair.get("rationale"),
             )
         )
+    return results
+
+
+def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]:
+    """Runs the AI matching pass in batches of `_AI_BATCH_SIZE` internal accounts at a
+    time (each batch still sees the full remaining audited list, shrinking as accounts
+    get matched) so large trial balances don't blow past prompt/time limits in one call."""
+    if not internal or not audited:
+        return []
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return []
+
+    try:
+        import anthropic
+    except ImportError:
+        return []
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    results: list[_RawMatch] = []
+    remaining_audited = list(audited)
+    for start in range(0, len(internal), _AI_BATCH_SIZE):
+        if not remaining_audited:
+            break
+        batch_internal = internal[start : start + _AI_BATCH_SIZE]
+        batch_results = _ai_pass_single(client, batch_internal, remaining_audited)
+        results.extend(batch_results)
+        matched_audited_names = {m.audited_name for m in batch_results}
+        remaining_audited = [e for e in remaining_audited if e.account_name not in matched_audited_names]
     return results
 
 

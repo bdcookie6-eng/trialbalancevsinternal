@@ -238,6 +238,21 @@ function setupDropzone(target, input) {
 setupDropzone("client", clientFileInput);
 setupDropzone("audit", auditFileInput);
 
+function clearOwnError(el, errorId) {
+  el.classList.remove("invalid");
+  const errorEl = document.getElementById(errorId);
+  if (errorEl) errorEl.textContent = "";
+}
+
+document.getElementById("client_name").addEventListener("input", (e) => clearOwnError(e.target, "client_name-error"));
+document.getElementById("period_label").addEventListener("input", (e) => clearOwnError(e.target, "period_label-error"));
+[clientFileInput, document.getElementById("client_text")].forEach((el) =>
+  el.addEventListener("input", () => clearOwnError(document.getElementById("client-dropzone"), "client-error"))
+);
+[auditFileInput, document.getElementById("audit_text")].forEach((el) =>
+  el.addEventListener("input", () => clearOwnError(document.getElementById("audit-dropzone"), "audit-error"))
+);
+
 function renderSummaryPreview(data) {
   document.getElementById("preview-title").textContent = document.getElementById("client_name").value;
   document.getElementById("preview-subtitle").textContent =
@@ -310,17 +325,119 @@ function renderComparisonPreview(data) {
   `;
 }
 
+function clearFieldErrors() {
+  document.querySelectorAll(".field-error").forEach((el) => (el.textContent = ""));
+  document.querySelectorAll(".invalid").forEach((el) => el.classList.remove("invalid"));
+}
+
+function setFieldError(errorId, message, invalidEl) {
+  const errorEl = document.getElementById(errorId);
+  if (errorEl) errorEl.textContent = message;
+  if (invalidEl) invalidEl.classList.add("invalid");
+}
+
+function validateTbInput(target) {
+  const mode = document.querySelector(`.mode-btn.active[data-target="${target}"]`).dataset.mode;
+  if (mode === "file") {
+    const fileInput = document.getElementById(`${target}_file`);
+    if (!fileInput.files.length) {
+      setFieldError(`${target}-error`, "Upload a file or switch to paste data.", document.getElementById(`${target}-dropzone`));
+      return false;
+    }
+    const panel = document.getElementById(`${target}-mapping-panel`);
+    if (!panel.hidden) {
+      const mapping = JSON.parse(panel.querySelector(".mapping-json-field").value || "{}");
+      if (!mapping.name_col) {
+        setFieldError(`${target}-error`, "Confirm the column mapping below before running.");
+        return false;
+      }
+    }
+  } else {
+    const textInput = document.getElementById(`${target}_text`);
+    if (!textInput.value.trim()) {
+      setFieldError(`${target}-error`, "Paste the trial balance data or switch to file upload.", textInput);
+      return false;
+    }
+  }
+  return true;
+}
+
+function validateForm() {
+  clearFieldErrors();
+  let valid = true;
+
+  const clientNameInput = document.getElementById("client_name");
+  if (!clientNameInput.value.trim()) {
+    setFieldError("client_name-error", "Required.", clientNameInput);
+    valid = false;
+  }
+  const periodInput = document.getElementById("period_label");
+  if (!periodInput.value.trim()) {
+    setFieldError("period_label-error", "Required.", periodInput);
+    valid = false;
+  }
+
+  if (!validateTbInput("client")) valid = false;
+  if (!validateTbInput("audit")) valid = false;
+
+  return valid;
+}
+
+const PROGRESS_STEPS = [
+  { pct: 15, text: "Parsing client records…" },
+  { pct: 35, text: "Parsing audit working trial balance…" },
+  { pct: 55, text: "Matching accounts (exact + fuzzy)…" },
+  { pct: 75, text: "Resolving remaining matches with AI…" },
+  { pct: 92, text: "Building comparison workbook…" },
+];
+
+function startProgress() {
+  const bar = document.getElementById("progress-bar");
+  const fill = document.getElementById("progress-bar-fill");
+  bar.hidden = false;
+  fill.style.width = "0%";
+  let i = 0;
+  statusEl.className = "";
+  const tick = () => {
+    if (i >= PROGRESS_STEPS.length) return;
+    const step = PROGRESS_STEPS[i];
+    fill.style.width = `${step.pct}%`;
+    statusEl.textContent = step.text;
+    i += 1;
+  };
+  tick();
+  const interval = setInterval(tick, 900);
+  return {
+    finish() {
+      clearInterval(interval);
+      fill.style.width = "100%";
+      setTimeout(() => {
+        bar.hidden = true;
+      }, 300);
+    },
+  };
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  statusEl.textContent = "Running reconciliation…";
-  statusEl.className = "";
+
+  if (!validateForm()) {
+    statusEl.textContent = "Please fix the highlighted fields before running.";
+    statusEl.className = "error";
+    document.querySelector(".invalid, .field-error:not(:empty)")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+
   resultsEl.hidden = true;
   runBtn.disabled = true;
+  const progress = startProgress();
 
   try {
     const formData = new FormData(form);
     const response = await fetch("/api/reconcile", { method: "POST", body: formData });
     const data = await response.json();
+
+    progress.finish();
 
     if (data.error) {
       statusEl.textContent = data.error;
@@ -339,6 +456,7 @@ form.addEventListener("submit", async (event) => {
 
     resultsEl.hidden = false;
   } catch (err) {
+    progress.finish();
     statusEl.textContent = `Unexpected error: ${err.message}`;
     statusEl.className = "error";
   } finally {
