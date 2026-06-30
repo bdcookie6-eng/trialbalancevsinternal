@@ -569,6 +569,64 @@ def _inspect_unknown(filename: str, raw: bytes) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Period date detection: pulled from an audit balance-column header (e.g.
+# "Report 12/31/2025") or, failing that, the filename — so the UI can
+# auto-fill the period label instead of making the user retype it.
+# ---------------------------------------------------------------------------
+
+_MONTH_NAMES = (
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+)
+_MONTH_RE = "|".join(_MONTH_NAMES)
+
+_DATE_PATTERNS = [
+    re.compile(r"(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)"),  # MM/DD/YYYY or MM-DD-YYYY
+    re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)"),  # YYYY-MM-DD
+    re.compile(rf"\b({_MONTH_RE})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})\b", re.IGNORECASE),  # Month DD, YYYY
+]
+
+
+def _format_date(year: int, month: int, day: int) -> str | None:
+    import datetime
+
+    try:
+        date = datetime.date(year, month, day)
+    except ValueError:
+        return None
+    return f"{date.strftime('%B')} {date.day}, {date.year}"
+
+
+def _extract_date(text: str) -> str | None:
+    if not text:
+        return None
+    match = _DATE_PATTERNS[0].search(text)
+    if match:
+        month, day, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        return _format_date(year, month, day)
+    match = _DATE_PATTERNS[1].search(text)
+    if match:
+        year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        return _format_date(year, month, day)
+    match = _DATE_PATTERNS[2].search(text)
+    if match:
+        month = _MONTH_NAMES.index(match.group(1).lower()) + 1
+        day, year = int(match.group(2)), int(match.group(3))
+        return _format_date(year, month, day)
+    return None
+
+
+def detect_period_label(filename: str, header_hints: list[str] | None = None) -> str | None:
+    """Try the most reliable source first (a balance-column header like
+    "Report 12/31/2025"), then fall back to scanning the filename."""
+    for hint in header_hints or []:
+        found = _extract_date(hint)
+        if found:
+            return found
+    return _extract_date(filename)
+
+
+# ---------------------------------------------------------------------------
 # Format auto-detection entry points
 # ---------------------------------------------------------------------------
 
@@ -582,20 +640,21 @@ def inspect_upload(filename: str, raw: bytes) -> dict:
     if lower.endswith((".xlsx", ".xls")):
         audit_info = inspect_audit_workpaper(raw)
         if audit_info["is_audit_workpaper"]:
-            return {"format": "audit_workpaper", **audit_info}
+            detected_date = detect_period_label(filename, audit_info.get("columns"))
+            return {"format": "audit_workpaper", **audit_info, "detected_date": detected_date}
         if is_client_debit_credit_format(filename, raw):
-            return {"format": "client_debit_credit"}
+            return {"format": "client_debit_credit", "detected_date": detect_period_label(filename)}
         if _generic_columns_confident(pd.read_excel(io.BytesIO(raw))):
-            return {"format": "generic"}
+            return {"format": "generic", "detected_date": detect_period_label(filename)}
         return _inspect_unknown(filename, raw)
     if lower.endswith(".csv"):
         if is_client_debit_credit_format(filename, raw):
-            return {"format": "client_debit_credit"}
+            return {"format": "client_debit_credit", "detected_date": detect_period_label(filename)}
         if _generic_columns_confident(pd.read_csv(io.BytesIO(raw))):
-            return {"format": "generic"}
+            return {"format": "generic", "detected_date": detect_period_label(filename)}
         return _inspect_unknown(filename, raw)
     if lower.endswith(".pdf"):
-        return {"format": "generic"}
+        return {"format": "generic", "detected_date": detect_period_label(filename)}
     return {
         "format": "unsupported",
         "error": f"Unsupported file type: {filename}. Please upload a CSV, XLSX, or PDF file.",

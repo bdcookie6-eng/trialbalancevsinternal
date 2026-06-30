@@ -178,6 +178,13 @@ async function handleFileInspect(target, file) {
     } else {
       mappingPanels[target].hide();
     }
+
+    if (info.detected_date) {
+      const periodInput = document.getElementById("period_label");
+      if (!periodInput.value.trim()) {
+        periodInput.value = info.detected_date;
+      }
+    }
   } catch (err) {
     if (target === "audit") columnPicker.hidden = true;
     mappingPanels[target].hide();
