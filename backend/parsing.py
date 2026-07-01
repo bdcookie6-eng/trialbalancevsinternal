@@ -44,8 +44,8 @@ def _to_float(value) -> float | None:
     text = str(value).strip()
     if not text:
         return None
-    negative = text.startswith("(") and text.endswith(")")
-    text = text.strip("()").replace("$", "").replace(",", "").strip()
+    negative = "(" in text and ")" in text
+    text = text.replace("(", "").replace(")", "").replace("$", "").replace(",", "").strip()
     if not text:
         return None
     try:
