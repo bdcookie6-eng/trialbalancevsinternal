@@ -15,9 +15,10 @@ from pathlib import Path
 from fastapi import FastAPI, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from excel_export import build_workbook
-from matching import ComparisonReport, build_comparison
+from matching import ComparisonReport, ComparisonRow, build_comparison
 from parsing import TBEntry, inspect_upload, parse_pasted_text, parse_upload
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -148,3 +149,71 @@ async def reconcile_endpoint(
 
     result["workbook_base64"] = base64.b64encode(workbook_bytes).decode("ascii")
     return result
+
+
+class ExportRow(BaseModel):
+    account_code: str | None = None
+    account_name: str
+    client_balance: float | None = None
+    audit_balance: float | None = None
+    method: str
+    note: str | None = None
+    confirmed: bool = False
+
+
+class ExportSummary(BaseModel):
+    accounts_compared: int
+    accounts_tied: int
+    material_count: int
+    only_in_client_count: int
+    only_in_audit_count: int
+    net_difference: float
+
+
+class ExportRequest(BaseModel):
+    compared_column: str
+    client_name: str
+    period_label: str
+    summary: ExportSummary
+    conclusion: str
+    notes: list[str]
+    rows: list[ExportRow]
+
+
+@app.post("/api/export")
+async def export_endpoint(payload: ExportRequest):
+    """Regenerate the workbook with reviewer confirmations/notes baked in.
+
+    Takes the same rows the client originally got from /api/reconcile, plus
+    whatever `confirmed`/`note` edits the reviewer made in the browser, and
+    rebuilds the Excel file so the sign-off is reflected in the download.
+    """
+    report = ComparisonReport(
+        rows=[
+            ComparisonRow(
+                account_code=r.account_code,
+                account_name=r.account_name,
+                client_balance=r.client_balance,
+                audit_balance=r.audit_balance,
+                method=r.method,
+                note=r.note,
+                confirmed=r.confirmed,
+            )
+            for r in payload.rows
+        ],
+        compared_column=payload.compared_column,
+        accounts_compared=payload.summary.accounts_compared,
+        accounts_tied=payload.summary.accounts_tied,
+        material_count=payload.summary.material_count,
+        only_in_client_count=payload.summary.only_in_client_count,
+        only_in_audit_count=payload.summary.only_in_audit_count,
+        net_difference=payload.summary.net_difference,
+        conclusion=payload.conclusion,
+        notes=payload.notes,
+    )
+    try:
+        workbook_bytes = build_workbook(report, payload.client_name, payload.period_label)
+    except Exception as exc:
+        return {"error": f"Could not build workbook: {exc}"}
+
+    return {"workbook_base64": base64.b64encode(workbook_bytes).decode("ascii")}

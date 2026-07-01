@@ -10,7 +10,7 @@ Handles two real-world shapes in addition to generic CSV/pasted data:
    this is used to identify account rows precisely; otherwise we fall back to heuristics.
 
 2. Client TB export: Full name / Debit / Credit columns, terminated by a "TOTAL" row.
-   The signed balance is Debit - Credit.
+   The signed balance is Credit - Debit.
 """
 from __future__ import annotations
 
@@ -44,15 +44,21 @@ def _to_float(value) -> float | None:
     text = str(value).strip()
     if not text:
         return None
-    negative = text.startswith("(") and text.endswith(")")
-    text = text.strip("()").replace("$", "").replace(",", "").strip()
+    negative = "(" in text and ")" in text
+    text = (
+        text.replace("(", "")
+        .replace(")", "")
+        .replace("$", "")
+        .replace(",", "")
+        .replace(" ", "")
+    )
     if not text:
         return None
     try:
         amount = float(text)
     except ValueError:
         return None
-    return -amount if negative else amount
+    return -abs(amount) if negative else amount
 
 
 def _load_workbook(raw: bytes):
@@ -272,7 +278,7 @@ def parse_client_debit_credit(filename: str, raw: bytes) -> list[TBEntry]:
             break
         debit = _to_float(row[debit_idx]) if debit_idx is not None and debit_idx < len(row) else None
         credit = _to_float(row[credit_idx]) if credit_idx is not None and credit_idx < len(row) else None
-        entries.append(TBEntry(account_name=name, balance=(debit or 0.0) - (credit or 0.0)))
+        entries.append(TBEntry(account_name=name, balance=(credit or 0.0) - (debit or 0.0)))
     return entries
 
 
@@ -472,7 +478,7 @@ def parse_with_mapping(filename: str, raw: bytes, mapping: ColumnMapping) -> lis
         else:
             debit = _to_float(cell(row, mapping.debit_col)) or 0.0
             credit = _to_float(cell(row, mapping.credit_col)) or 0.0
-            balance = debit - credit
+            balance = credit - debit
         if balance is None:
             continue
 

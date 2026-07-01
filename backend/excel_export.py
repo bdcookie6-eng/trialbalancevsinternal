@@ -84,7 +84,8 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
     ws.column_dimensions["C"].width = 18
     ws.column_dimensions["D"].width = 22
     ws.column_dimensions["E"].width = 14
-    ws.column_dimensions["F"].width = 40
+    ws.column_dimensions["F"].width = 12
+    ws.column_dimensions["G"].width = 40
 
     ws["A1"] = f"{client_name} — Trial Balance Comparison as of {period_label}"
     ws["A1"].font = _TITLE_FONT
@@ -100,6 +101,7 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
             "Per Client Records",
             f"Per {report.compared_column}",
             "Difference",
+            "Reviewed",
             "Notes",
         ],
     )
@@ -113,7 +115,10 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
         c_cell = ws.cell(row=row, column=3, value=r.client_balance)
         a_cell = ws.cell(row=row, column=4, value=r.audit_balance)
         d_cell = ws.cell(row=row, column=5, value=r.difference)
-        ws.cell(row=row, column=6, value=r.note)
+        reviewed_cell = ws.cell(row=row, column=6, value="Yes" if r.confirmed else "")
+        if r.is_material and r.confirmed:
+            reviewed_cell.fill = PatternFill(fill_type="solid", fgColor=GREEN)
+        ws.cell(row=row, column=7, value=r.note)
         for cell in (c_cell, a_cell, d_cell):
             cell.number_format = NUMBER_FORMAT
         total_client += r.client_balance or 0.0
