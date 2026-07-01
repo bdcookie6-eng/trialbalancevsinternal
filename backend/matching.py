@@ -205,6 +205,7 @@ class ComparisonRow:
     audit_balance: float | None
     method: str  # exact | fuzzy | ai | audit_only | client_only
     note: str | None = None
+    confirmed: bool = False
 
     @property
     def difference(self) -> float:

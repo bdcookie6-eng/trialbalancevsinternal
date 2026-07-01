@@ -379,4 +379,29 @@ tr.ai-match { background: #fff8e1; }
 #comparison-table tbody tr.mismatch { background: #fffff0; }
 #comparison-table tbody tr.mismatch td:nth-child(5) { background: #ffff00; }
 #comparison-table tbody tr.ai-match { background: #fff8e1; }
+#comparison-table tbody tr.confirmed { background: #eafaf0; }
+#comparison-table tbody tr.confirmed td:nth-child(5) { background: #c6efce; }
+
+.review-progress {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: #fff8e1;
+  color: #7a5c00;
+}
+.review-progress.all-confirmed { background: #c6efce; color: #1e4620; }
+
+td.review-cell { text-align: center; }
+.review-checkbox { width: 18px; height: 18px; cursor: pointer; }
+.review-note {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
 #comparison-table tfoot td { background: #eef2f7; }

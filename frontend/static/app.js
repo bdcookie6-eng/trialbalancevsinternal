@@ -7,6 +7,8 @@ const clientFileInput = document.getElementById("client_file");
 const columnPicker = document.getElementById("column-picker");
 const balanceColumnSelect = document.getElementById("balance_column");
 
+let lastReconcileData = null; // most recent successful /api/reconcile response, used to build the export payload
+
 function money(value) {
   if (value === null || value === undefined) return "";
   return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -298,27 +300,83 @@ function renderSummaryPreview(data) {
   });
 }
 
+let reviewState = {}; // row index -> { confirmed, note }, reset each time results are rendered
+
+function updateReviewProgress(materialTotal) {
+  const progressEl = document.getElementById("review-progress");
+  if (!materialTotal) {
+    progressEl.hidden = true;
+    return;
+  }
+  const confirmedCount = Object.values(reviewState).filter((s) => s.confirmed).length;
+  progressEl.hidden = false;
+  progressEl.textContent = `${confirmedCount} of ${materialTotal} material difference(s) confirmed`;
+  progressEl.classList.toggle("all-confirmed", confirmedCount === materialTotal);
+}
+
 function renderComparisonPreview(data) {
+  reviewState = {};
   const tbody = document.querySelector("#comparison-table tbody");
   tbody.innerHTML = "";
   let totalClient = 0;
   let totalAudit = 0;
-  data.rows.forEach((r) => {
+  let materialTotal = 0;
+
+  data.rows.forEach((r, idx) => {
     const tr = document.createElement("tr");
-    if (r.is_material) tr.classList.add("mismatch");
     if (r.method === "ai") tr.classList.add("ai-match");
-    tr.innerHTML = `
-      <td>${r.account_code ?? ""}</td>
-      <td>${r.account_name}</td>
-      <td>${money(r.client_balance)}</td>
-      <td>${money(r.audit_balance)}</td>
-      <td>${money(r.difference)}</td>
-      <td>${r.note ?? ""}</td>
-    `;
+
+    const codeTd = document.createElement("td");
+    codeTd.textContent = r.account_code ?? "";
+    const nameTd = document.createElement("td");
+    nameTd.textContent = r.account_name;
+    const clientTd = document.createElement("td");
+    clientTd.textContent = money(r.client_balance);
+    const auditTd = document.createElement("td");
+    auditTd.textContent = money(r.audit_balance);
+    const diffTd = document.createElement("td");
+    diffTd.textContent = money(r.difference);
+    const reviewTd = document.createElement("td");
+    reviewTd.className = "review-cell";
+    const notesTd = document.createElement("td");
+    notesTd.className = "notes-cell";
+
+    if (r.is_material) {
+      materialTotal += 1;
+      reviewState[idx] = { confirmed: false, note: r.note ?? "" };
+      tr.classList.add("mismatch");
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "review-checkbox";
+      checkbox.setAttribute("aria-label", `Mark ${r.account_name} reviewed`);
+      checkbox.addEventListener("change", () => {
+        reviewState[idx].confirmed = checkbox.checked;
+        tr.classList.toggle("confirmed", checkbox.checked);
+        updateReviewProgress(materialTotal);
+      });
+      reviewTd.appendChild(checkbox);
+
+      const noteInput = document.createElement("input");
+      noteInput.type = "text";
+      noteInput.className = "review-note";
+      noteInput.placeholder = "Explain the difference...";
+      noteInput.value = r.note ?? "";
+      noteInput.addEventListener("input", () => {
+        reviewState[idx].note = noteInput.value;
+      });
+      notesTd.appendChild(noteInput);
+    } else {
+      notesTd.textContent = r.note ?? "";
+    }
+
+    tr.append(codeTd, nameTd, clientTd, auditTd, diffTd, reviewTd, notesTd);
     tbody.appendChild(tr);
     totalClient += r.client_balance || 0;
     totalAudit += r.audit_balance || 0;
   });
+
+  updateReviewProgress(materialTotal);
 
   const totalRow = document.getElementById("comparison-total");
   totalRow.innerHTML = `
@@ -327,6 +385,7 @@ function renderComparisonPreview(data) {
     <td><strong>${money(totalClient)}</strong></td>
     <td><strong>${money(totalAudit)}</strong></td>
     <td><strong>${money(totalClient - totalAudit)}</strong></td>
+    <td></td>
     <td></td>
   `;
 }
@@ -453,12 +512,9 @@ form.addEventListener("submit", async (event) => {
 
     statusEl.textContent = "";
 
+    lastReconcileData = data;
     renderSummaryPreview(data);
     renderComparisonPreview(data);
-
-    const downloadLink = document.getElementById("download-link");
-    const blob = await (await fetch(`data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${data.workbook_base64}`)).blob();
-    downloadLink.href = URL.createObjectURL(blob);
 
     resultsEl.hidden = false;
   } catch (err) {
@@ -467,5 +523,57 @@ form.addEventListener("submit", async (event) => {
     statusEl.className = "error";
   } finally {
     runBtn.disabled = false;
+  }
+});
+
+document.getElementById("download-link").addEventListener("click", async (event) => {
+  event.preventDefault();
+  if (!lastReconcileData) return;
+
+  const link = event.currentTarget;
+  const originalText = link.textContent;
+  link.textContent = "Preparing…";
+
+  try {
+    const rows = lastReconcileData.rows.map((r, idx) => ({
+      account_code: r.account_code,
+      account_name: r.account_name,
+      client_balance: r.client_balance,
+      audit_balance: r.audit_balance,
+      method: r.method,
+      note: reviewState[idx] ? reviewState[idx].note : r.note,
+      confirmed: reviewState[idx] ? reviewState[idx].confirmed : false,
+    }));
+
+    const response = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        compared_column: lastReconcileData.compared_column,
+        client_name: document.getElementById("client_name").value,
+        period_label: document.getElementById("period_label").value,
+        summary: lastReconcileData.summary,
+        conclusion: lastReconcileData.conclusion,
+        notes: lastReconcileData.notes,
+        rows,
+      }),
+    });
+    const payload = await response.json();
+    if (payload.error) throw new Error(payload.error);
+
+    const blob = await (await fetch(`data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${payload.workbook_base64}`)).blob();
+    const url = URL.createObjectURL(blob);
+    const tempLink = document.createElement("a");
+    tempLink.href = url;
+    tempLink.download = "trial_balance_comparison.xlsx";
+    document.body.appendChild(tempLink);
+    tempLink.click();
+    document.body.removeChild(tempLink);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    statusEl.textContent = `Could not prepare download: ${err.message}`;
+    statusEl.className = "error";
+  } finally {
+    link.textContent = originalText;
   }
 });
