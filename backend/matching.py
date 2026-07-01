@@ -369,7 +369,7 @@ def build_comparison(
     matched_ai = sum(1 for m in matched if m.method == "ai")
 
     notes = [
-        "Client balances are shown signed (debit positive, credit negative) to match the audit column convention.",
+        "Client balances are shown signed (credit positive, debit negative) to match the audit column convention.",
         f'The "{compared_column}" column differences under $1 are treated as rounding, not material.',
     ]
     notes.extend(mapping_notes)

@@ -357,6 +357,14 @@ function renderComparisonPreview(data) {
       });
       reviewTd.appendChild(checkbox);
 
+      // The yellow (or, once confirmed, green) difference cell doubles as a toggle.
+      diffTd.classList.add("diff-toggle");
+      diffTd.title = "Click to mark this difference reviewed";
+      diffTd.addEventListener("click", () => {
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      });
+
       const noteInput = document.createElement("input");
       noteInput.type = "text";
       noteInput.className = "review-note";

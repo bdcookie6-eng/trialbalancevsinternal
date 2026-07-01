@@ -41,7 +41,7 @@ flags everything the fuzzy matcher couldn't resolve as missing on one side.
   header rows and "<code> Total" subtotal rows are excluded automatically — using a hidden
   tag column (e.g. "System Type") when present, or a heuristic fallback otherwise.
 - **Client trial balance export**: a Full name / Debit / Credit header row (XLSX or CSV),
-  netted into a signed balance (Debit − Credit), terminated by a "TOTAL" row.
+  netted into a signed balance (Credit − Debit), terminated by a "TOTAL" row.
 - **Generic CSV/XLSX/PDF/pasted text**: a single name column and a single balance column,
   guessed from headers.
 - **Anything else**: if none of the above match with confidence, the file falls back to a

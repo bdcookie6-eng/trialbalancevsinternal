@@ -382,6 +382,10 @@ tr.ai-match { background: #fff8e1; }
 #comparison-table tbody tr.confirmed { background: #eafaf0; }
 #comparison-table tbody tr.confirmed td:nth-child(5) { background: #c6efce; }
 
+td.diff-toggle { cursor: pointer; }
+td.diff-toggle:hover { outline: 2px solid #7a5c00; outline-offset: -2px; }
+tr.confirmed td.diff-toggle:hover { outline-color: #1e4620; }
+
 .review-progress {
   display: inline-block;
   margin: 0 0 0.75rem;
