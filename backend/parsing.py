@@ -45,14 +45,20 @@ def _to_float(value) -> float | None:
     if not text:
         return None
     negative = "(" in text and ")" in text
-    text = text.replace("(", "").replace(")", "").replace("$", "").replace(",", "").strip()
+    text = (
+        text.replace("(", "")
+        .replace(")", "")
+        .replace("$", "")
+        .replace(",", "")
+        .replace(" ", "")
+    )
     if not text:
         return None
     try:
         amount = float(text)
     except ValueError:
         return None
-    return -amount if negative else amount
+    return -abs(amount) if negative else amount
 
 
 def _load_workbook(raw: bytes):
