@@ -322,6 +322,8 @@ function renderSummaryPreview(data) {
     ["Accounts with a material difference (≥ $1)", s.material_count, s.material_count === 0],
     ["Accounts with a balance only in client records", s.only_in_client_count, s.only_in_client_count === 0],
     ["Accounts with a balance only on audit working TB", s.only_in_audit_count, s.only_in_audit_count === 0],
+    ["Total per client records (all accounts, signed)", s.total_client, Math.abs(s.total_client) < 1],
+    ["Total per audit working TB (all accounts, signed)", s.total_audit, Math.abs(s.total_audit) < 1],
     ["Net difference across all accounts", s.net_difference, Math.abs(s.net_difference) < 1],
   ];
 

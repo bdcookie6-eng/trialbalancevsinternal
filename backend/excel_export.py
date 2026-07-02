@@ -49,19 +49,21 @@ def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: s
     _header_row(ws, 6, ["Result", "Count / Amount"])
 
     metric_rows = [
-        ("Accounts compared (present in both trial balances)", report.accounts_compared, None),
-        ("Accounts that tie (difference under $1)", report.accounts_tied, None),
-        ("Accounts with a material difference (≥ $1)", report.material_count, report.material_count == 0),
-        ("Accounts with a balance only in client records", report.only_in_client_count, report.only_in_client_count == 0),
-        ("Accounts with a balance only on audit working TB", report.only_in_audit_count, report.only_in_audit_count == 0),
-        ("Net difference across all accounts", report.net_difference, abs(report.net_difference) < MATERIAL_THRESHOLD),
+        ("Accounts compared (present in both trial balances)", report.accounts_compared, None, NUMBER_FORMAT),
+        ("Accounts that tie (difference under $1)", report.accounts_tied, None, NUMBER_FORMAT),
+        ("Accounts with a material difference (≥ $1)", report.material_count, report.material_count == 0, NUMBER_FORMAT),
+        ("Accounts with a balance only in client records", report.only_in_client_count, report.only_in_client_count == 0, NUMBER_FORMAT),
+        ("Accounts with a balance only on audit working TB", report.only_in_audit_count, report.only_in_audit_count == 0, NUMBER_FORMAT),
+        ("Total per client records (all accounts, signed)", report.total_client, abs(report.total_client) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
+        ("Total per audit working TB (all accounts, signed)", report.total_audit, abs(report.total_audit) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
+        ("Net difference across all accounts", report.net_difference, abs(report.net_difference) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
     ]
 
     row = 7
-    for label, value, is_good in metric_rows:
+    for label, value, is_good, number_format in metric_rows:
         ws.cell(row=row, column=1, value=label)
         value_cell = ws.cell(row=row, column=2, value=value)
-        value_cell.number_format = NUMBER_FORMAT
+        value_cell.number_format = number_format
         if is_good is not None:
             value_cell.fill = PatternFill(fill_type="solid", fgColor=GREEN if is_good else RED)
         row += 1

@@ -118,6 +118,8 @@ def _report_to_json(report: ComparisonReport) -> dict:
             "material_count": report.material_count,
             "only_in_client_count": report.only_in_client_count,
             "only_in_audit_count": report.only_in_audit_count,
+            "total_client": report.total_client,
+            "total_audit": report.total_audit,
             "net_difference": report.net_difference,
         },
         "conclusion": report.conclusion,

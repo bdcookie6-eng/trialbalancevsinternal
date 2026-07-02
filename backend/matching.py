@@ -225,6 +225,8 @@ class ComparisonReport:
     material_count: int
     only_in_client_count: int
     only_in_audit_count: int
+    total_client: float
+    total_audit: float
     net_difference: float
     conclusion: str
     notes: list[str] = field(default_factory=list)
@@ -354,7 +356,10 @@ def build_comparison(
     material_count = accounts_compared - accounts_tied
     only_in_client_count = sum(1 for e in remaining_internal if abs(e.balance) >= 0.005)
     only_in_audit_count = sum(1 for e in remaining_audited if abs(e.balance) >= 0.005)
-    net_difference = round(sum(r.difference for r in all_rows), 2)
+    # + 0.0 folds float dust's -0.0 into 0.0 so it never renders with a sign.
+    total_client = round(sum(r.client_balance or 0.0 for r in all_rows), 2) + 0.0
+    total_audit = round(sum(r.audit_balance or 0.0 for r in all_rows), 2) + 0.0
+    net_difference = round(sum(r.difference for r in all_rows), 2) + 0.0
     has_zero_only = bool(remaining_internal or remaining_audited) and not (
         only_in_client_count or only_in_audit_count
     )
@@ -377,6 +382,8 @@ def build_comparison(
         material_count=material_count,
         only_in_client_count=only_in_client_count,
         only_in_audit_count=only_in_audit_count,
+        total_client=total_client,
+        total_audit=total_audit,
         net_difference=net_difference,
         conclusion=_build_conclusion(
             material_count,
