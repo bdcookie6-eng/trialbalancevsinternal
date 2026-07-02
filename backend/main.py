@@ -124,6 +124,14 @@ def _report_to_json(report: ComparisonReport) -> dict:
         },
         "conclusion": report.conclusion,
         "notes": report.notes,
+        "aje": {
+            "rows": [
+                {"account_name": l.account_name, "debit": l.debit, "credit": l.credit}
+                for l in report.aje_rows
+            ],
+            "total_debit": round(sum(l.debit or 0.0 for l in report.aje_rows), 2),
+            "total_credit": round(sum(l.credit or 0.0 for l in report.aje_rows), 2),
+        },
         "rows": [
             {
                 "account_code": r.account_code,

@@ -305,30 +305,94 @@ def test_reconcile_example_end_to_end(client):
 def test_workbook_matches_json(client):
     data = _reconcile_example(client)
     wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(data["workbook_base64"])))
-    assert wb.sheetnames == ["Summary", "Comparison"]
+    assert wb.sheetnames == ["Adjusting Journal Entry", "TB Comparison", "Summary"]
 
-    comp = wb["Comparison"]
-    headers = [c.value for c in comp[4]]
-    assert headers[2:5] == ["Per Report 12/31/2025", "Per Client Records", "Difference"]
+    comp = wb["TB Comparison"]
+    headers = [c.value for c in comp[3]]
+    assert headers[2:5] == ["Per Client Records", "Per Report 12/31/2025", "Difference"]
 
-    # every data row's difference cell equals audit - client
-    body = list(comp.iter_rows(min_row=5, max_row=comp.max_row - 1))
+    # client in C, audit in D, difference stays a live x - y formula
+    body = list(comp.iter_rows(min_row=4, max_row=comp.max_row - 1))
     assert len(body) == len(data["rows"])
     for excel_row, json_row in zip(body, data["rows"]):
         assert excel_row[1].value == json_row["account_name"]
-        assert (excel_row[2].value or 0) - (excel_row[3].value or 0) == pytest.approx(excel_row[4].value)
+        assert excel_row[2].value == json_row["client_balance"]
+        assert excel_row[3].value == json_row["audit_balance"]
+        assert excel_row[4].value == f"=+D{excel_row[4].row}-C{excel_row[4].row}"
 
     total = list(comp.iter_rows(min_row=comp.max_row, max_row=comp.max_row))[0]
+    last_data = comp.max_row - 1
     assert total[1].value == "TOTAL"
-    assert (total[2].value, total[3].value, total[4].value) == (0, 0, 0)
+    assert total[2].value == f"=SUM(C4:C{last_data})"
+    assert total[3].value == f"=SUM(D4:D{last_data})"
+    assert total[4].value == f"=SUM(E4:E{last_data})"
     assert "0.00" in total[2].number_format  # zero totals stay visible
 
     labels = [row[0].value for row in wb["Summary"].iter_rows(min_row=7, max_row=14)]
     assert labels[-3:] == [
-        "Total per audit working TB (all accounts, signed)",
         "Total per client records (all accounts, signed)",
+        "Total per audit working TB (all accounts, signed)",
         "Net difference across all accounts (audit − client)",
     ]
+
+
+def test_aje_lines_book_differences_as_debits_and_credits(client):
+    data = _reconcile_example(client)
+    aje = data["aje"]
+    by_name = {r["account_name"]: r for r in aje["rows"]}
+
+    # matched account with a difference books under the client's account name
+    pf = by_name["Professional Fees"]
+    assert (pf["debit"], pf["credit"]) == (1990.0, None)  # x - y = +1,990 -> debit
+    # audit-only income account: negative difference -> credit
+    assert by_name["Interest Income"]["credit"] == 1250.0
+    # client-only expense account: bring to zero -> credit, under the client name
+    assert by_name["Bank Service Charges"]["credit"] == 740.0
+    # deep client path kept as-is (the client posts this entry in their books)
+    assert "Operating Expenses:Occupancy:Facility Depreciation" in by_name
+
+    # tied accounts produce no AJE line
+    assert "Cash and Cash Equivalents" not in by_name
+    # the entry balances when the net difference is zero
+    assert aje["total_debit"] == aje["total_credit"] == 676240.0
+    assert len(aje["rows"]) == 9
+
+
+def test_aje_sheet_layout_and_formulas(client):
+    data = _reconcile_example(client)
+    wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(data["workbook_base64"])))
+    ws = wb["Adjusting Journal Entry"]
+
+    assert ws["A1"].value == "Harborview"
+    assert ws["A2"].value == "Adjusting Journal Entry — To adjust client records to audited balances"
+    assert ws["A3"].value == "As of Dec 31 2025"
+    assert [c.value for c in ws[5][:3]] == ["Account / Description", "Debit", "Credit"]
+
+    n = len(data["aje"]["rows"])
+    first, last, totals_row = 6, 5 + n, 6 + n
+    for row, json_line in zip(ws.iter_rows(min_row=first, max_row=last), data["aje"]["rows"]):
+        assert row[0].value == json_line["account_name"]
+        assert row[1].value == json_line["debit"]
+        assert row[2].value == json_line["credit"]
+        assert not (row[1].value and row[2].value)  # a line is a debit or a credit, never both
+
+    assert ws.cell(row=totals_row, column=1).value == "TOTALS"
+    assert ws.cell(row=totals_row, column=2).value == f"=SUM(B{first}:B{last})"
+    assert ws.cell(row=totals_row, column=3).value == f"=SUM(C{first}:C{last})"
+    assert ws.cell(row=totals_row, column=4).value == f"=+B{totals_row}-C{totals_row}"
+
+
+def test_aje_empty_when_everything_ties(client):
+    data = client.post(
+        "/api/reconcile",
+        data={"client_text": "Cash\t100.00", "audit_text": "Cash\t100.00",
+              "client_name": "T", "period_label": "P"},
+    ).json()
+    assert data["aje"]["rows"] == []
+    assert data["aje"]["total_debit"] == data["aje"]["total_credit"] == 0.0
+    ws = openpyxl.load_workbook(io.BytesIO(base64.b64decode(data["workbook_base64"])))["Adjusting Journal Entry"]
+    assert "No adjusting entries required" in ws["A6"].value
+    assert ws["B7"].value == 0 and ws["C7"].value == 0  # totals are plain zeros, no SUM over nothing
 
 
 def test_reconcile_pasted_text_both_sides(client):

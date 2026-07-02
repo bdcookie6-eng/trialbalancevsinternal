@@ -1,4 +1,12 @@
-"""Build the Summary + Comparison workbook for a trial balance reconciliation."""
+"""Build the exported workbook for a trial balance reconciliation.
+
+Three sheets, mirroring the audit deliverable sent to the client for approval:
+1. "Adjusting Journal Entry" — debit/credit lines that adjust the client's
+   records to the audited balances, with SUM totals and a balance check cell.
+2. "TB Comparison" — per-account detail (Per Client Records / Per Report /
+   Difference-as-formula), TOTAL row with live SUM formulas.
+3. "Summary" — health-check counts, totals, conclusion, and notes.
+"""
 from __future__ import annotations
 
 import io
@@ -6,26 +14,40 @@ import textwrap
 
 from openpyxl import Workbook
 from openpyxl.formatting.rule import FormulaRule
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 
 from matching import ComparisonReport, MATERIAL_THRESHOLD
 
-NAVY = "FF1F3864"
+DARK_BLUE = "FF1F4E78"
 WHITE = "FFFFFFFF"
 GREEN = "FFC6EFCE"
 RED = "FFFFC7CE"
 YELLOW = "FFFFFF00"
+TOTALS_FILL = "FFD9E1F2"
 NUMBER_FORMAT = r"#,##0;\(#,##0\);\-"
 # Totals must stay visible even when a signed trial balance sums to exactly zero,
 # so this shows 0.00 (with cents) instead of the dash the account rows use.
 TOTAL_NUMBER_FORMAT = r"#,##0.00;\(#,##0.00\);0.00"
+AJE_NUMBER_FORMAT = "#,##0"
 
 _HEADER_FONT = Font(bold=True, size=11, color=WHITE)
-_HEADER_FILL = PatternFill(fill_type="solid", fgColor=NAVY)
+_HEADER_FILL = PatternFill(fill_type="solid", fgColor=DARK_BLUE)
 _TITLE_FONT = Font(bold=True, size=14)
 _SUBTITLE_FONT = Font(bold=True, size=11)
 _BOLD_FONT = Font(bold=True)
+
+_THIN = Side(style="thin")
+_DOUBLE = Side(style="double")
+_BOX_BORDER = Border(top=_THIN, bottom=_THIN, left=_THIN, right=_THIN)
+_TOTALS_BORDER = Border(top=_DOUBLE, bottom=_DOUBLE, left=_THIN, right=_THIN)
+
+_AJE_TITLE_FONT = Font(bold=True, size=14, color=DARK_BLUE)
+_AJE_SUBTITLE_FONT = Font(bold=True, size=11, color="FF404040")
+_AJE_PERIOD_FONT = Font(size=10, color="FF595959")
+_AJE_HEADER_FONT = Font(bold=True, size=10, color=WHITE)
+_AJE_BODY_FONT = Font(size=10)
+_AJE_TOTALS_FONT = Font(bold=True, size=10)
 
 
 def _header_row(ws: Worksheet, row: int, headers: list[str]) -> None:
@@ -33,6 +55,72 @@ def _header_row(ws: Worksheet, row: int, headers: list[str]) -> None:
         cell = ws.cell(row=row, column=col, value=text)
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
+
+
+def _build_aje_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
+    ws.column_dimensions["A"].width = 56
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 13
+    ws.column_dimensions["D"].width = 13
+
+    for row in (1, 2, 3):
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+    ws["A1"] = client_name
+    ws["A1"].font = _AJE_TITLE_FONT
+    ws["A2"] = "Adjusting Journal Entry — To adjust client records to audited balances"
+    ws["A2"].font = _AJE_SUBTITLE_FONT
+    ws["A3"] = f"As of {period_label}"
+    ws["A3"].font = _AJE_PERIOD_FONT
+
+    header_row = 5
+    for col, (text, align) in enumerate(
+        [("Account / Description", "left"), ("Debit", "right"), ("Credit", "right")], start=1
+    ):
+        cell = ws.cell(row=header_row, column=col, value=text)
+        cell.font = _AJE_HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.border = _BOX_BORDER
+        cell.alignment = Alignment(horizontal=align)
+
+    row = header_row + 1
+    if not report.aje_rows:
+        cell = ws.cell(
+            row=row, column=1,
+            value="No adjusting entries required — client records tie to the audited balances.",
+        )
+        cell.font = _AJE_BODY_FONT
+        for col in (1, 2, 3):
+            ws.cell(row=row, column=col).border = _BOX_BORDER
+        row += 1
+    for line in report.aje_rows:
+        ws.cell(row=row, column=1, value=line.account_name).font = _AJE_BODY_FONT
+        for col, value in ((2, line.debit), (3, line.credit)):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font = _AJE_BODY_FONT
+            cell.number_format = AJE_NUMBER_FORMAT
+        for col in (1, 2, 3):
+            ws.cell(row=row, column=col).border = _BOX_BORDER
+        row += 1
+
+    first_data, last_data = header_row + 1, row - 1
+    label_cell = ws.cell(row=row, column=1, value="TOTALS")
+    label_cell.alignment = Alignment(horizontal="right")
+    if report.aje_rows:
+        ws.cell(row=row, column=2, value=f"=SUM(B{first_data}:B{last_data})")
+        ws.cell(row=row, column=3, value=f"=SUM(C{first_data}:C{last_data})")
+    else:
+        ws.cell(row=row, column=2, value=0)
+        ws.cell(row=row, column=3, value=0)
+    for col in (1, 2, 3):
+        cell = ws.cell(row=row, column=col)
+        cell.font = _AJE_TOTALS_FONT
+        cell.fill = PatternFill(fill_type="solid", fgColor=TOTALS_FILL)
+        cell.border = _TOTALS_BORDER
+        if col > 1:
+            cell.number_format = AJE_NUMBER_FORMAT
+    # Balance check just outside the table: debits minus credits must be zero.
+    check = ws.cell(row=row, column=4, value=f"=+B{row}-C{row}")
+    check.number_format = AJE_NUMBER_FORMAT
 
 
 def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
@@ -54,8 +142,8 @@ def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: s
         ("Accounts with a material difference (≥ $1)", report.material_count, report.material_count == 0, NUMBER_FORMAT),
         ("Accounts with a balance only in client records", report.only_in_client_count, report.only_in_client_count == 0, NUMBER_FORMAT),
         ("Accounts with a balance only on audit working TB", report.only_in_audit_count, report.only_in_audit_count == 0, NUMBER_FORMAT),
-        ("Total per audit working TB (all accounts, signed)", report.total_audit, abs(report.total_audit) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
         ("Total per client records (all accounts, signed)", report.total_client, abs(report.total_client) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
+        ("Total per audit working TB (all accounts, signed)", report.total_audit, abs(report.total_audit) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
         ("Net difference across all accounts (audit − client)", report.net_difference, abs(report.net_difference) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
     ]
 
@@ -86,76 +174,70 @@ def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: s
 def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
     ws.column_dimensions["A"].width = 12
     ws.column_dimensions["B"].width = 58
-    ws.column_dimensions["C"].width = 22
-    ws.column_dimensions["D"].width = 18
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 22
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 40
 
     ws["A1"] = f"{client_name} — Trial Balance Comparison as of {period_label}"
     ws["A1"].font = _TITLE_FONT
-    ws["A2"] = f"Per Client Records vs. Per Audit Working Trial Balance ({report.compared_column})"
 
-    header_row = 4
+    header_row = 3
     _header_row(
         ws,
         header_row,
         [
             "Account Code",
             "Account / Description",
-            f"Per {report.compared_column}",
             "Per Client Records",
+            f"Per {report.compared_column}",
             "Difference",
             "Notes",
         ],
     )
 
     row = header_row + 1
-    total_client = 0.0
-    total_audit = 0.0
     for r in report.rows:
         ws.cell(row=row, column=1, value=r.account_code)
         ws.cell(row=row, column=2, value=r.account_name)
-        a_cell = ws.cell(row=row, column=3, value=r.audit_balance)
-        c_cell = ws.cell(row=row, column=4, value=r.client_balance)
-        d_cell = ws.cell(row=row, column=5, value=r.difference)
+        c_cell = ws.cell(row=row, column=3, value=r.client_balance)
+        a_cell = ws.cell(row=row, column=4, value=r.audit_balance)
+        # Difference stays a live formula (x - y: Per Report minus Per Client).
+        d_cell = ws.cell(row=row, column=5, value=f"=+D{row}-C{row}")
         ws.cell(row=row, column=6, value=r.note)
         for cell in (c_cell, a_cell, d_cell):
             cell.number_format = NUMBER_FORMAT
-        total_client += r.client_balance or 0.0
-        total_audit += r.audit_balance or 0.0
         row += 1
 
-    last_data_row = row - 1
-    if last_data_row >= header_row + 1:
+    first_data, last_data = header_row + 1, row - 1
+    if last_data >= first_data:
         ws.conditional_formatting.add(
-            f"E{header_row + 1}:E{last_data_row}",
+            f"E{first_data}:E{last_data}",
             FormulaRule(
-                formula=[f"ABS(E{header_row + 1})>={MATERIAL_THRESHOLD}"],
+                formula=[f"ABS(E{first_data})>={MATERIAL_THRESHOLD}"],
                 fill=PatternFill(fill_type="solid", fgColor=YELLOW),
             ),
         )
 
     total_cell = ws.cell(row=row, column=2, value="TOTAL")
     total_cell.font = _BOLD_FONT
-    for col, value in (
-        (3, round(total_audit, 2)),
-        (4, round(total_client, 2)),
-        (5, round(total_audit - total_client, 2)),
-    ):
-        # abs() folds Python's -0.0 into 0.0 so Excel never shows a stray sign.
-        cell = ws.cell(row=row, column=col, value=abs(value) if value == 0 else value)
+    for col_letter, col in (("C", 3), ("D", 4), ("E", 5)):
+        cell = ws.cell(row=row, column=col, value=f"=SUM({col_letter}{first_data}:{col_letter}{last_data})")
         cell.number_format = TOTAL_NUMBER_FORMAT
         cell.font = _BOLD_FONT
 
 
 def build_workbook(report: ComparisonReport, client_name: str, period_label: str) -> bytes:
     wb = Workbook()
-    summary_ws = wb.active
-    summary_ws.title = "Summary"
-    _build_summary_sheet(summary_ws, report, client_name, period_label)
+    aje_ws = wb.active
+    aje_ws.title = "Adjusting Journal Entry"
+    _build_aje_sheet(aje_ws, report, client_name, period_label)
 
-    comparison_ws = wb.create_sheet("Comparison")
+    comparison_ws = wb.create_sheet("TB Comparison")
     _build_comparison_sheet(comparison_ws, report, client_name, period_label)
+
+    summary_ws = wb.create_sheet("Summary")
+    _build_summary_sheet(summary_ws, report, client_name, period_label)
 
     buffer = io.BytesIO()
     wb.save(buffer)

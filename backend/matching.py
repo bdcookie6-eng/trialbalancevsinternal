@@ -200,6 +200,7 @@ class ComparisonRow:
     audit_balance: float | None
     method: str  # exact | fuzzy | ai | audit_only | client_only
     note: str | None = None
+    client_account_name: str | None = None  # name in the client's books, for the AJE
 
     @property
     def difference(self) -> float:
@@ -218,6 +219,15 @@ def _leaf(name: str) -> str:
 
 
 @dataclass
+class AJELine:
+    """One line of the adjusting journal entry that brings client records to
+    the audited balances: difference > 0 books a debit, < 0 a credit."""
+    account_name: str
+    debit: float | None
+    credit: float | None
+
+
+@dataclass
 class ComparisonReport:
     rows: list[ComparisonRow]
     compared_column: str
@@ -231,6 +241,7 @@ class ComparisonReport:
     net_difference: float
     conclusion: str
     notes: list[str] = field(default_factory=list)
+    aje_rows: list[AJELine] = field(default_factory=list)
 
 
 def _build_conclusion(
@@ -317,6 +328,7 @@ def build_comparison(
                 audit_balance=m.audited_balance,
                 method=m.method,
                 note=note,
+                client_account_name=m.internal_name,
             )
         )
 
@@ -346,6 +358,7 @@ def build_comparison(
             audit_balance=None,
             method="client_only",
             note="Not on audit working trial balance",
+            client_account_name=e.account_name,
         )
         for e in remaining_internal
     ]
@@ -375,6 +388,18 @@ def build_comparison(
     notes.extend(mapping_notes)
     numbered_notes = [f"{i}. {n}" for i, n in enumerate(notes, start=1)]
 
+    # Adjusting journal entry: one line per account whose difference isn't zero,
+    # booked under the client's account name (the client posts this entry).
+    aje_rows = [
+        AJELine(
+            account_name=r.client_account_name or r.account_name,
+            debit=r.difference if r.difference > 0 else None,
+            credit=-r.difference if r.difference < 0 else None,
+        )
+        for r in all_rows
+        if abs(r.difference) >= 0.005
+    ]
+
     return ComparisonReport(
         rows=all_rows,
         compared_column=compared_column,
@@ -396,4 +421,5 @@ def build_comparison(
             matched_ai,
         ),
         notes=numbered_notes,
+        aje_rows=aje_rows,
     )

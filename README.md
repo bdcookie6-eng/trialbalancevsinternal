@@ -13,9 +13,12 @@ names, so matching is fuzzy:
    supporting evidence. Anything the AI can't confidently match stays flagged as missing
    on one side.
 
-The output mirrors a standard audit tie-out memo: a **Summary** sheet (counts, conclusion,
-notes) plus a **Comparison** sheet (per-account detail, ordered by the audit workpaper,
-with a TOTAL row and material differences highlighted).
+The output mirrors the audit deliverable sent to the client for approval: an
+**Adjusting Journal Entry** sheet (debit/credit lines that adjust the client's records to
+the audited balances, with SUM totals and a balance-check cell), a **TB Comparison** sheet
+(per-account detail ordered by the audit workpaper, Difference as a live `=Report−Client`
+formula, TOTAL row with SUM formulas, material differences highlighted), and a **Summary**
+sheet (counts, totals, conclusion, notes).
 
 Each trial balance can be supplied as a **file** (CSV, XLSX, or PDF) or as **pasted text**.
 
@@ -78,10 +81,11 @@ up in a single run — see `examples/README.md` for the walkthrough.
 - `backend/matching.py` — runs the hybrid rapidfuzz → Claude matching pipeline
   (`build_comparison`) and produces a `ComparisonReport`: matched/unmatched rows, balance
   differences, summary counts, a plain-English conclusion, and supporting notes.
-- `backend/excel_export.py` — renders a `ComparisonReport` into a styled two-sheet
-  workbook (`build_workbook`): Summary (health-check counts with green/red highlighting,
-  conclusion, notes) and Comparison (per-account detail with conditional formatting on
-  material differences and a TOTAL row).
+- `backend/excel_export.py` — renders a `ComparisonReport` into a styled three-sheet
+  workbook (`build_workbook`): Adjusting Journal Entry (client-facing debit/credit lines
+  with SUM totals and a balance check), TB Comparison (per-account detail with live
+  difference formulas, conditional formatting on material differences, and a TOTAL row),
+  and Summary (health-check counts with green/red highlighting, conclusion, notes).
 - `backend/main.py` — FastAPI app: serves the UI and exposes:
   - `POST /api/inspect` — upload either file, get back its detected format: audit balance
     columns to pick from, or (for unrecognized files) a grid preview and suggested mapping.

@@ -121,6 +121,19 @@
     <div id="progress-bar" hidden><div id="progress-bar-fill"></div></div>
 
     <section id="results" hidden>
+      <h2>Preview — Adjusting Journal Entry</h2>
+      <div class="sheet-preview" id="aje-preview">
+        <div class="sheet-title" id="aje-title"></div>
+        <div class="sheet-subtitle">Adjusting Journal Entry — To adjust client records to audited balances</div>
+        <div class="sheet-period" id="aje-period"></div>
+
+        <table class="sheet-table" id="aje-table">
+          <thead><tr><th>Account / Description</th><th>Debit</th><th>Credit</th></tr></thead>
+          <tbody></tbody>
+          <tfoot><tr id="aje-total"></tr></tfoot>
+        </table>
+      </div>
+
       <h2>Preview — Summary Sheet</h2>
       <div class="sheet-preview" id="summary-preview">
         <div class="sheet-title" id="preview-title"></div>
@@ -140,14 +153,14 @@
         <ol id="preview-notes"></ol>
       </div>
 
-      <h2>Preview — Comparison Sheet</h2>
+      <h2>Preview — TB Comparison Sheet</h2>
       <table id="comparison-table" class="sheet-table">
         <thead>
           <tr>
             <th>Account Code</th>
             <th>Account / Description</th>
-            <th id="audit-col-header">Per Audited TB</th>
             <th>Per Client Records</th>
+            <th id="audit-col-header">Per Audited TB</th>
             <th>Difference</th>
             <th>Notes</th>
           </tr>
@@ -162,6 +175,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

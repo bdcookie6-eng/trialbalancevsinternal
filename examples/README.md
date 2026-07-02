@@ -39,8 +39,10 @@ Both trial balances internally balance (debits = credits), like real ones would.
    - The three exceptions offset exactly, so the **net difference is $0** while
      material items still exist — a nice illustration of why "the totals agree" is
      not the same as "the accounts tie".
-3. Download the Excel workbook and show that the Summary/Comparison sheets match the
-   in-app preview.
+3. Download the Excel workbook and show that all three sheets (Adjusting Journal Entry,
+   TB Comparison, Summary) match the in-app preview. The AJE sheet books each difference
+   as a debit or credit under the client's own account name, and its TOTALS row (live SUM
+   formulas plus a debit-minus-credit check cell) balances at $676,240 on each side.
 
 Without an `ANTHROPIC_API_KEY`, the three AI-pair accounts are flagged as missing on
 each side instead of matched — which itself demos the no-key fallback.
