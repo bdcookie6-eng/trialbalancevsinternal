@@ -33,6 +33,12 @@ Open http://localhost:8000.
 Without `ANTHROPIC_API_KEY` set, the tool still runs — it just skips the AI pass and
 flags everything the fuzzy matcher couldn't resolve as missing on one side.
 
+## Example data
+
+`examples/` contains a ready-made demo pair for a fictional company (audit workpaper
+XLSX + client debit/credit CSV), seeded so every matching path and result state shows
+up in a single run — see `examples/README.md` for the walkthrough.
+
 ## Supported formats
 
 - **Audit working trial balance**: a Code / Account / Description header row plus one or
