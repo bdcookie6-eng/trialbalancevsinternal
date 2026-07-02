@@ -252,7 +252,13 @@ exampleBtn.addEventListener("click", async () => {
   const originalLabel = exampleBtn.textContent;
   exampleBtn.textContent = "Loading example…";
   try {
+    if (typeof DataTransfer === "undefined" || typeof File === "undefined") {
+      throw new Error(
+        "this browser can't fill file inputs programmatically — download the files from the examples/ folder and drag them in instead."
+      );
+    }
     const response = await fetch("/api/example-data");
+    if (!response.ok) throw new Error(`server returned ${response.status}`);
     const data = await response.json();
     if (data.error) throw new Error(data.error);
 

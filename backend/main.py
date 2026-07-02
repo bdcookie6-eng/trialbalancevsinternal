@@ -35,11 +35,15 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.middleware("http")
-async def no_store_for_api(request, call_next):
-    """Never let a response carrying account data be cached anywhere."""
+async def cache_control(request, call_next):
+    """API responses carry account data — never cache them anywhere. The page and
+    static assets must revalidate on every load, or browsers keep serving a stale
+    app.js against fresh HTML after a deploy."""
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
