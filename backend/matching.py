@@ -31,8 +31,6 @@ class _RawMatch:
     audited_balance: float
     audited_code: str | None
     method: str  # exact | fuzzy | ai
-    confidence: int
-    rationale: str | None = None
 
 
 def _normalize(name: str) -> str:
@@ -80,7 +78,6 @@ def _fuzzy_pass(
                 audited_balance=audited[j].balance,
                 audited_code=audited[j].account_code,
                 method=method,
-                confidence=int(score),
             )
         )
 
@@ -159,8 +156,6 @@ def _ai_pass_single(
                 audited_balance=au_entry.balance,
                 audited_code=au_entry.account_code,
                 method="ai",
-                confidence=int(pair.get("confidence", 60)),
-                rationale=pair.get("rationale"),
             )
         )
     return results

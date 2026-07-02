@@ -199,8 +199,6 @@ textarea {
   border-radius: 6px;
 }
 
-input[type="file"] { width: 100%; }
-
 .dropzone {
   position: relative;
   border: 2px dashed var(--border);
@@ -298,25 +296,6 @@ input.invalid, .dropzone.invalid {
   transition: width 0.4s ease;
 }
 
-.summary-cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin: 1.5rem 0;
-}
-
-.summary-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
-  text-align: center;
-}
-
-.summary-card .value { font-size: 1.6rem; font-weight: 600; }
-.summary-card.warn .value { color: var(--danger); }
-.summary-card.ok .value { color: var(--ok); }
-
 .results-actions { margin-bottom: 1.5rem; }
 
 #download-link {
@@ -343,11 +322,6 @@ th, td {
 }
 
 th { background: #eef2f7; }
-
-tr.mismatch { background: #fdecea; }
-tr.ai-match { background: #fff8e1; }
-
-.hint { font-size: 0.8rem; color: #5a6472; font-weight: normal; }
 
 .sheet-preview {
   background: var(--card-bg);

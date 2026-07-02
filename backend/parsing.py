@@ -33,9 +33,6 @@ class TBEntry:
     account_code: str | None = None
 
 
-_AMOUNT_RE = re.compile(r"-?\(?\$?\s*-?[\d,]+\.?\d*\)?")
-
-
 def _to_float(value) -> float | None:
     if value is None:
         return None
@@ -91,19 +88,6 @@ def _load_grid(filename: str, raw: bytes) -> list[list]:
 # ---------------------------------------------------------------------------
 
 _TAG_ACCOUNT_PREFIXES = ("Account_",)
-_TAG_NON_ACCOUNT_PREFIXES = (
-    "Header_",
-    "SubcodeBlankRow_",
-    "SubTotal",
-    "Code_",
-    "GrandTotalRow",
-    "NetIncomeRow",
-    "TotalAssets",
-    "TotalLiabilities",
-    "TotalEquity",
-    "TotalRevenue",
-    "TotalExpense",
-)
 
 
 def _find_header_row(ws) -> int | None:
