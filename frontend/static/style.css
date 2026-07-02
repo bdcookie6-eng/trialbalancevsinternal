@@ -31,6 +31,29 @@ main {
   padding: 1.5rem 2rem 3rem;
 }
 
+.example-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+#example-btn {
+  padding: 0.45rem 0.9rem;
+  background: var(--card-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#example-btn:hover:not(:disabled) { background: #eaf2fa; }
+#example-btn:disabled { opacity: 0.6; cursor: default; }
+
+.hint { font-size: 0.8rem; color: #5a6472; font-weight: normal; }
+
 .meta-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

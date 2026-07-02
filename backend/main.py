@@ -23,6 +23,12 @@ from parsing import TBEntry, inspect_upload, parse_pasted_text, parse_upload
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "frontend" / "templates"
 STATIC_DIR = BASE_DIR / "frontend" / "static"
+EXAMPLES_DIR = BASE_DIR / "examples"
+
+_EXAMPLE_FILES = {
+    "client": "Harborview Consulting LLC TB Detail 12-31-2025.csv",
+    "audit": "Harborview Consulting LLC Working Trial Balance 12-31-2025.xlsx",
+}
 
 app = FastAPI(title="Trial Balance Reconciliation")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -40,6 +46,22 @@ async def no_store_for_api(request, call_next):
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
     return HTMLResponse((TEMPLATES_DIR / "index.html").read_text())
+
+
+@app.get("/api/example-data")
+async def example_data():
+    """The demo files from examples/, base64-encoded so the UI can load them
+    into the normal file-upload flow with one click."""
+    result = {}
+    for side, filename in _EXAMPLE_FILES.items():
+        path = EXAMPLES_DIR / filename
+        if not path.exists():
+            return {"error": "Example data files are not available on this server."}
+        result[side] = {
+            "filename": filename,
+            "base64": base64.b64encode(path.read_bytes()).decode("ascii"),
+        }
+    return result
 
 
 @app.post("/api/inspect")

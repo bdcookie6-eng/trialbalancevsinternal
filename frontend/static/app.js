@@ -244,6 +244,45 @@ function setupDropzone(target, input) {
 setupDropzone("client", clientFileInput);
 setupDropzone("audit", auditFileInput);
 
+const exampleBtn = document.getElementById("example-btn");
+exampleBtn.addEventListener("click", async () => {
+  exampleBtn.disabled = true;
+  const originalLabel = exampleBtn.textContent;
+  exampleBtn.textContent = "Loading example…";
+  try {
+    const response = await fetch("/api/example-data");
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+
+    // Start from a clean slate so the filename auto-detection fills these in.
+    document.getElementById("client_name").value = "";
+    document.getElementById("period_label").value = "";
+    clearFieldErrors();
+    statusEl.textContent = "";
+    statusEl.className = "";
+    resultsEl.hidden = true;
+
+    for (const target of ["client", "audit"]) {
+      // Make sure the side is in file-upload mode, then hand the example file
+      // to the real <input type="file"> so the normal inspect flow runs.
+      document.querySelector(`.mode-btn[data-mode="file"][data-target="${target}"]`).click();
+      const bytes = Uint8Array.from(atob(data[target].base64), (ch) => ch.charCodeAt(0));
+      const file = new File([bytes], data[target].filename);
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      const input = document.getElementById(`${target}_file`);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change"));
+    }
+  } catch (err) {
+    statusEl.textContent = `Could not load the example data: ${err.message}`;
+    statusEl.className = "error";
+  } finally {
+    exampleBtn.disabled = false;
+    exampleBtn.textContent = originalLabel;
+  }
+});
+
 function clearOwnError(el, errorId) {
   el.classList.remove("invalid");
   const errorEl = document.getElementById(errorId);

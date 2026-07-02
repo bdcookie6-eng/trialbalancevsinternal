@@ -1,6 +1,9 @@
 # Example data
 
-A ready-made demo pair for a fictional company, **Harborview Consulting, LLC**:
+A ready-made demo pair for a fictional company, **Harborview Consulting, LLC**.
+The **"Fill with example data"** button at the top of the app loads this pair into
+the upload inputs in one click (served by `GET /api/example-data`); the files are
+also here if you want to drag them in manually or open them in Excel:
 
 | File | Upload into | Format it demonstrates |
 | --- | --- | --- |
@@ -11,7 +14,8 @@ Both trial balances internally balance (debits = credits), like real ones would.
 
 ## Demo script
 
-1. Drag each file into its upload zone. Point out that the **Client name**
+1. Click **Fill with example data** (or drag each file into its upload zone).
+   Point out that the **Client name**
    ("Harborview Consulting, LLC") and **Period label** ("December 31, 2025") fill in
    automatically from the filenames, and the audit side offers a **balance column
    picker** (Unadjusted / Adjusted / Report 12/31/2025 — the Report column is
