@@ -17,6 +17,9 @@ GREEN = "FFC6EFCE"
 RED = "FFFFC7CE"
 YELLOW = "FFFFFF00"
 NUMBER_FORMAT = r"#,##0;\(#,##0\);\-"
+# Totals must stay visible even when a signed trial balance sums to exactly zero,
+# so this shows 0.00 (with cents) instead of the dash the account rows use.
+TOTAL_NUMBER_FORMAT = r"#,##0.00;\(#,##0.00\);0.00"
 
 _HEADER_FONT = Font(bold=True, size=11, color=WHITE)
 _HEADER_FILL = PatternFill(fill_type="solid", fgColor=NAVY)
@@ -137,8 +140,9 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
         (4, round(total_audit, 2)),
         (5, round(total_client - total_audit, 2)),
     ):
-        cell = ws.cell(row=row, column=col, value=value)
-        cell.number_format = NUMBER_FORMAT
+        # abs() folds Python's -0.0 into 0.0 so Excel never shows a stray sign.
+        cell = ws.cell(row=row, column=col, value=abs(value) if value == 0 else value)
+        cell.number_format = TOTAL_NUMBER_FORMAT
         cell.font = _BOLD_FONT
 
 
