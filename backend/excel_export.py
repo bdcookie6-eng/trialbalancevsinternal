@@ -54,9 +54,9 @@ def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: s
         ("Accounts with a material difference (≥ $1)", report.material_count, report.material_count == 0, NUMBER_FORMAT),
         ("Accounts with a balance only in client records", report.only_in_client_count, report.only_in_client_count == 0, NUMBER_FORMAT),
         ("Accounts with a balance only on audit working TB", report.only_in_audit_count, report.only_in_audit_count == 0, NUMBER_FORMAT),
-        ("Total per client records (all accounts, signed)", report.total_client, abs(report.total_client) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
         ("Total per audit working TB (all accounts, signed)", report.total_audit, abs(report.total_audit) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
-        ("Net difference across all accounts", report.net_difference, abs(report.net_difference) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
+        ("Total per client records (all accounts, signed)", report.total_client, abs(report.total_client) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
+        ("Net difference across all accounts (audit − client)", report.net_difference, abs(report.net_difference) < MATERIAL_THRESHOLD, TOTAL_NUMBER_FORMAT),
     ]
 
     row = 7
@@ -86,8 +86,8 @@ def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: s
 def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
     ws.column_dimensions["A"].width = 12
     ws.column_dimensions["B"].width = 58
-    ws.column_dimensions["C"].width = 18
-    ws.column_dimensions["D"].width = 22
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 18
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 40
 
@@ -102,8 +102,8 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
         [
             "Account Code",
             "Account / Description",
-            "Per Client Records",
             f"Per {report.compared_column}",
+            "Per Client Records",
             "Difference",
             "Notes",
         ],
@@ -115,8 +115,8 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
     for r in report.rows:
         ws.cell(row=row, column=1, value=r.account_code)
         ws.cell(row=row, column=2, value=r.account_name)
-        c_cell = ws.cell(row=row, column=3, value=r.client_balance)
-        a_cell = ws.cell(row=row, column=4, value=r.audit_balance)
+        a_cell = ws.cell(row=row, column=3, value=r.audit_balance)
+        c_cell = ws.cell(row=row, column=4, value=r.client_balance)
         d_cell = ws.cell(row=row, column=5, value=r.difference)
         ws.cell(row=row, column=6, value=r.note)
         for cell in (c_cell, a_cell, d_cell):
@@ -138,9 +138,9 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
     total_cell = ws.cell(row=row, column=2, value="TOTAL")
     total_cell.font = _BOLD_FONT
     for col, value in (
-        (3, round(total_client, 2)),
-        (4, round(total_audit, 2)),
-        (5, round(total_client - total_audit, 2)),
+        (3, round(total_audit, 2)),
+        (4, round(total_client, 2)),
+        (5, round(total_audit - total_client, 2)),
     ):
         # abs() folds Python's -0.0 into 0.0 so Excel never shows a stray sign.
         cell = ws.cell(row=row, column=col, value=abs(value) if value == 0 else value)

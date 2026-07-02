@@ -322,9 +322,9 @@ function renderSummaryPreview(data) {
     ["Accounts with a material difference (≥ $1)", s.material_count, s.material_count === 0],
     ["Accounts with a balance only in client records", s.only_in_client_count, s.only_in_client_count === 0],
     ["Accounts with a balance only on audit working TB", s.only_in_audit_count, s.only_in_audit_count === 0],
-    ["Total per client records (all accounts, signed)", s.total_client, Math.abs(s.total_client) < 1],
     ["Total per audit working TB (all accounts, signed)", s.total_audit, Math.abs(s.total_audit) < 1],
-    ["Net difference across all accounts", s.net_difference, Math.abs(s.net_difference) < 1],
+    ["Total per client records (all accounts, signed)", s.total_client, Math.abs(s.total_client) < 1],
+    ["Net difference across all accounts (audit − client)", s.net_difference, Math.abs(s.net_difference) < 1],
   ];
 
   const tbody = document.querySelector("#summary-cards");
@@ -359,8 +359,8 @@ function renderComparisonPreview(data) {
     tr.innerHTML = `
       <td>${r.account_code ?? ""}</td>
       <td>${r.account_name}</td>
-      <td>${money(r.client_balance)}</td>
       <td>${money(r.audit_balance)}</td>
+      <td>${money(r.client_balance)}</td>
       <td>${money(r.difference)}</td>
       <td>${r.note ?? ""}</td>
     `;
@@ -373,9 +373,9 @@ function renderComparisonPreview(data) {
   totalRow.innerHTML = `
     <td></td>
     <td><strong>TOTAL</strong></td>
-    <td><strong>${money(totalClient)}</strong></td>
     <td><strong>${money(totalAudit)}</strong></td>
-    <td><strong>${money(totalClient - totalAudit)}</strong></td>
+    <td><strong>${money(totalClient)}</strong></td>
+    <td><strong>${money(totalAudit - totalClient)}</strong></td>
     <td></td>
   `;
 }

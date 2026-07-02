@@ -203,9 +203,10 @@ class ComparisonRow:
 
     @property
     def difference(self) -> float:
+        """Signed as audit working TB minus client records (memo convention)."""
         client = self.client_balance if self.client_balance is not None else 0.0
         audit = self.audit_balance if self.audit_balance is not None else 0.0
-        return round(client - audit, 2)
+        return round(audit - client, 2)
 
     @property
     def is_material(self) -> bool:
