@@ -319,7 +319,30 @@ input.invalid, .dropzone.invalid {
   transition: width 0.4s ease;
 }
 
-.results-actions { margin-bottom: 1.5rem; }
+.results-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.workbook-name-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+#workbook-name {
+  width: min(34rem, 80vw);
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: normal;
+}
 
 #download-link {
   display: inline-block;

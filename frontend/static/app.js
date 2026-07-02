@@ -306,6 +306,38 @@ document.getElementById("period_label").addEventListener("input", (e) => clearOw
   el.addEventListener("input", () => clearOwnError(document.getElementById("audit-dropzone"), "audit-error"))
 );
 
+const workbookNameInput = document.getElementById("workbook-name");
+let lastDefaultWorkbookName = "";
+
+function sanitizeFilename(name) {
+  return name.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+}
+
+function defaultWorkbookName() {
+  const client = document.getElementById("client_name").value.trim() || "Client";
+  const period = document.getElementById("period_label").value.trim();
+  return sanitizeFilename(`${client} Adjusting Journal Entry ${period}`);
+}
+
+function applyWorkbookName() {
+  const name = sanitizeFilename(workbookNameInput.value) || defaultWorkbookName();
+  document.getElementById("download-link").download = name.toLowerCase().endsWith(".xlsx")
+    ? name
+    : `${name}.xlsx`;
+}
+
+workbookNameInput.addEventListener("input", applyWorkbookName);
+
+function prefillWorkbookName() {
+  // Refresh the suggested name on each run, but never clobber a custom one.
+  const current = workbookNameInput.value.trim();
+  if (!current || current === lastDefaultWorkbookName) {
+    lastDefaultWorkbookName = defaultWorkbookName();
+    workbookNameInput.value = lastDefaultWorkbookName;
+  }
+  applyWorkbookName();
+}
+
 function renderAjePreview(data) {
   document.getElementById("aje-title").textContent = document.getElementById("client_name").value;
   document.getElementById("aje-period").textContent = `As of ${document.getElementById("period_label").value}`;
@@ -533,6 +565,7 @@ form.addEventListener("submit", async (event) => {
     const downloadLink = document.getElementById("download-link");
     const blob = await (await fetch(`data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${data.workbook_base64}`)).blob();
     downloadLink.href = URL.createObjectURL(blob);
+    prefillWorkbookName();
 
     resultsEl.hidden = false;
   } catch (err) {
