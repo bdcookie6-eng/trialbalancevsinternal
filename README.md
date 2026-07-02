@@ -33,6 +33,19 @@ Open http://localhost:8000.
 Without `ANTHROPIC_API_KEY` set, the tool still runs — it just skips the AI pass and
 flags everything the fuzzy matcher couldn't resolve as missing on one side.
 
+## Tests
+
+```bash
+cd backend
+pip install pytest
+pytest -q
+```
+
+`backend/test_app.py` covers parsing of every supported format, the matching pipeline,
+the difference sign convention (Per Report − Per Client Records), the Excel export,
+and the API endpoints. Tests run without an `ANTHROPIC_API_KEY` so results are
+deterministic (the AI pass is skipped).
+
 ## Example data
 
 `examples/` contains a ready-made demo pair for a fictional company (audit workpaper
