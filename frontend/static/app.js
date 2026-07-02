@@ -9,7 +9,9 @@ const balanceColumnSelect = document.getElementById("balance_column");
 
 function money(value) {
   if (value === null || value === undefined) return "";
-  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Round to cents and add 0 so float dust like -1.1e-11 shows as 0.00, not -0.00.
+  const rounded = Math.round(value * 100) / 100 + 0;
+  return rounded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function buildMappingPanel(target) {
