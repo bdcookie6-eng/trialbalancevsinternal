@@ -14,6 +14,16 @@ function money(value) {
   return rounded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fetchErrorMessage(err) {
+  // A TypeError from fetch means no response ever arrived: the server is down,
+  // still waking from idle, or a proxy dropped the connection. The browser's
+  // own message ("Failed to fetch" / "Load failed") is too cryptic to show.
+  if (err instanceof TypeError) {
+    return "the server could not be reached. If the app was idle it may still be starting up — wait a few seconds and try again.";
+  }
+  return err.message;
+}
+
 function buildMappingPanel(target) {
   const panel = document.getElementById(`${target}-mapping-panel`);
   const headerRowSelect = panel.querySelector(".map-header-row");
@@ -156,6 +166,7 @@ async function handleFileInspect(target, file) {
   formData.append("file", file);
   try {
     const response = await fetch("/api/inspect", { method: "POST", body: formData });
+    if (!response.ok) throw new Error(`the server responded with status ${response.status}.`);
     const info = await response.json();
 
     if (info.format === "error" || info.format === "unsupported") {
@@ -196,7 +207,7 @@ async function handleFileInspect(target, file) {
   } catch (err) {
     if (target === "audit") columnPicker.hidden = true;
     mappingPanels[target].hide();
-    statusEl.textContent = `Could not inspect the uploaded file: ${err.message}`;
+    statusEl.textContent = `Could not inspect the uploaded file: ${fetchErrorMessage(err)}`;
     statusEl.className = "error";
   }
 }
@@ -283,7 +294,7 @@ exampleBtn.addEventListener("click", async () => {
       input.dispatchEvent(new Event("change"));
     }
   } catch (err) {
-    statusEl.textContent = `Could not load the example data: ${err.message}`;
+    statusEl.textContent = `Could not load the example data: ${fetchErrorMessage(err)}`;
     statusEl.className = "error";
   } finally {
     exampleBtn.disabled = false;
@@ -546,6 +557,7 @@ form.addEventListener("submit", async (event) => {
   try {
     const formData = new FormData(form);
     const response = await fetch("/api/reconcile", { method: "POST", body: formData });
+    if (!response.ok) throw new Error(`the server responded with status ${response.status}. Try again in a moment.`);
     const data = await response.json();
 
     progress.finish();
@@ -570,7 +582,7 @@ form.addEventListener("submit", async (event) => {
     resultsEl.hidden = false;
   } catch (err) {
     progress.finish();
-    statusEl.textContent = `Unexpected error: ${err.message}`;
+    statusEl.textContent = `Reconciliation did not complete: ${fetchErrorMessage(err)}`;
     statusEl.className = "error";
   } finally {
     runBtn.disabled = false;

@@ -177,7 +177,11 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]
     except ImportError:
         return []
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # Keep the API call tightly bounded: the SDK default is a 10-minute timeout
+    # with 2 retries, which — multiplied across batches — holds the reconcile
+    # request open far longer than any hosting proxy allows. The proxy then drops
+    # the connection and the browser reports "Failed to fetch".
+    client = anthropic.Anthropic(api_key=api_key, timeout=30.0, max_retries=1)
 
     results: list[_RawMatch] = []
     remaining_audited = list(audited)
@@ -185,7 +189,13 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]
         if not remaining_audited:
             break
         batch_internal = internal[start : start + _AI_BATCH_SIZE]
-        batch_results = _ai_pass_single(client, batch_internal, remaining_audited)
+        try:
+            batch_results = _ai_pass_single(client, batch_internal, remaining_audited)
+        except Exception:
+            # AI matching is best-effort. A timeout, auth problem, or malformed
+            # response must never fail the whole reconcile — fall back to
+            # whatever the exact/fuzzy pass already matched.
+            break
         results.extend(batch_results)
         matched_audited_names = {m.audited_name for m in batch_results}
         remaining_audited = [e for e in remaining_audited if e.account_name not in matched_audited_names]

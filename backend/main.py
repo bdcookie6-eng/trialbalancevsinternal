@@ -74,7 +74,8 @@ async def inspect_endpoint(file: UploadFile):
     if not raw:
         return {"format": "error", "error": "The uploaded file is empty."}
     try:
-        return inspect_upload(file.filename, raw)
+        # Parsing (openpyxl/pdfplumber) is CPU-bound; keep it off the event loop.
+        return await asyncio.to_thread(inspect_upload, file.filename, raw)
     except Exception as exc:
         return {"format": "error", "error": str(exc)}
 
@@ -99,7 +100,9 @@ async def _load_entries(
         if not raw:
             raise ReconcileInputError(f"The uploaded file '{file.filename}' is empty.")
         try:
-            return parse_upload(file.filename, raw, balance_column=balance_column, mapping=mapping)
+            return await asyncio.to_thread(
+                parse_upload, file.filename, raw, balance_column=balance_column, mapping=mapping
+            )
         except ValueError as exc:
             raise ReconcileInputError(str(exc)) from exc
         except Exception as exc:
@@ -176,9 +179,12 @@ async def reconcile_endpoint(
 
     compared_column = balance_column or (audit_file.filename if audit_file else "Audited Balance")
     try:
-        report = build_comparison(client_entries, audit_entries, compared_column)
+        # build_comparison can block for a while (fuzzy matching + the AI pass
+        # makes synchronous HTTP calls). Run it in a worker thread so the event
+        # loop keeps serving other requests instead of freezing the whole app.
+        report = await asyncio.to_thread(build_comparison, client_entries, audit_entries, compared_column)
         result = _report_to_json(report)
-        workbook_bytes = build_workbook(report, client_name, period_label)
+        workbook_bytes = await asyncio.to_thread(build_workbook, report, client_name, period_label)
     except Exception as exc:
         return {"error": f"Reconciliation failed: {exc}"}
 

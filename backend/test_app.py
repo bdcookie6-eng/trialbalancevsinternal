@@ -84,6 +84,23 @@ def test_report_totals_follow_x_minus_y():
     assert report.net_difference == -55.0
 
 
+def test_ai_pass_failure_degrades_to_fuzzy_only(monkeypatch):
+    # With an API key set but the API failing (timeout, bad key, network),
+    # the reconcile must still succeed using the exact/fuzzy matches.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated API failure")
+
+    monkeypatch.setattr("matching._ai_pass_single", boom)
+    internal = [TBEntry("Cash", 100.0), TBEntry("Weirdly Named Acct", 40.0)]
+    audited = [TBEntry("Cash", 100.0), TBEntry("Completely Different", 40.0)]
+    report = build_comparison(internal, audited, "Report")
+    assert report.accounts_compared == 1
+    assert report.only_in_client_count == 1
+    assert report.only_in_audit_count == 1
+
+
 def test_zero_totals_never_negative_zero():
     internal = [TBEntry("Cash", 0.005), TBEntry("AP", -0.005)]
     audited = [TBEntry("Cash", 0.005), TBEntry("AP", -0.005)]
