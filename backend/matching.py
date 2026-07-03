@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz, process
@@ -109,6 +110,7 @@ Do not include unmatched accounts in the output.
 
 
 _AI_BATCH_SIZE = 40  # accounts per side, per call — keeps prompts fast and well within token limits
+_AI_PASS_DEADLINE_SECONDS = 60.0  # total budget across all batches — the HTTP request must finish before hosting proxies drop it
 
 
 def _ai_pass_single(
@@ -185,8 +187,11 @@ def _ai_pass(internal: list[TBEntry], audited: list[TBEntry]) -> list[_RawMatch]
 
     results: list[_RawMatch] = []
     remaining_audited = list(audited)
+    started_at = time.monotonic()
     for start in range(0, len(internal), _AI_BATCH_SIZE):
         if not remaining_audited:
+            break
+        if time.monotonic() - started_at > _AI_PASS_DEADLINE_SECONDS:
             break
         batch_internal = internal[start : start + _AI_BATCH_SIZE]
         try:

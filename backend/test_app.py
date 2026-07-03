@@ -101,6 +101,22 @@ def test_ai_pass_failure_degrades_to_fuzzy_only(monkeypatch):
     assert report.only_in_audit_count == 1
 
 
+def test_inspect_unknown_format_survives_ai_failure(monkeypatch, client):
+    # An unrecognized file triggers the AI column-mapping suggestion inside
+    # /api/inspect. With a key set but the API unreachable, inspect must still
+    # answer quickly with format "unknown" (manual mapping panel) rather than
+    # hanging or erroring — this was the "unable to fetch" on user uploads.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")  # connection refused
+    csv_bytes = b"Col A,Col B\nSomething,123.45\nOther thing,67.89\n"
+    resp = client.post("/api/inspect", files={"file": ("mystery.csv", csv_bytes, "text/csv")})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["format"] == "unknown"
+    assert body["suggested_mapping"] is None
+    assert body["grid_preview"]
+
+
 def test_zero_totals_never_negative_zero():
     internal = [TBEntry("Cash", 0.005), TBEntry("AP", -0.005)]
     audited = [TBEntry("Cash", 0.005), TBEntry("AP", -0.005)]

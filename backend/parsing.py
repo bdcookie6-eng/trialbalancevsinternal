@@ -507,37 +507,45 @@ def _ai_detect_mapping(filename: str, raw: bytes) -> tuple[ColumnMapping | None,
         return None, 0
 
     sample = grid[:40]
-    client = anthropic.Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=500,
-        system=_FORMAT_DETECT_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": json.dumps(sample, default=str)}],
-    )
-
-    text = "".join(block.text for block in response.content if block.type == "text")
+    # This runs inside /api/inspect, which fires the moment a file is selected.
+    # It must be strictly bounded (the SDK default is a 10-minute timeout with
+    # 2 retries) and best-effort: the suggestion is optional — the UI shows the
+    # manual column-mapping panel either way — so any API failure returns
+    # "no suggestion" instead of hanging or failing the inspect request.
+    client = anthropic.Anthropic(api_key=api_key, timeout=15.0, max_retries=0)
     try:
-        parsed = json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            return None, 0
-        parsed = json.loads(match.group(0))
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=500,
+            system=_FORMAT_DETECT_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(sample, default=str)}],
+        )
 
-    confidence = int(parsed.get("confidence", 0))
-    if parsed.get("header_row") is None or not parsed.get("name_col"):
-        return None, confidence
+        text = "".join(block.text for block in response.content if block.type == "text")
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if not match:
+                return None, 0
+            parsed = json.loads(match.group(0))
 
-    mapping = ColumnMapping(
-        header_row=int(parsed["header_row"]),
-        name_col=int(parsed["name_col"]),
-        code_col=parsed.get("code_col"),
-        balance_col=parsed.get("balance_col"),
-        debit_col=parsed.get("debit_col"),
-        credit_col=parsed.get("credit_col"),
-        stop_text=parsed.get("stop_text"),
-    )
-    return mapping, confidence
+        confidence = int(parsed.get("confidence", 0))
+        if parsed.get("header_row") is None or not parsed.get("name_col"):
+            return None, confidence
+
+        mapping = ColumnMapping(
+            header_row=int(parsed["header_row"]),
+            name_col=int(parsed["name_col"]),
+            code_col=parsed.get("code_col"),
+            balance_col=parsed.get("balance_col"),
+            debit_col=parsed.get("debit_col"),
+            credit_col=parsed.get("credit_col"),
+            stop_text=parsed.get("stop_text"),
+        )
+        return mapping, confidence
+    except Exception:
+        return None, 0
 
 
 def _inspect_unknown(filename: str, raw: bytes) -> dict:
