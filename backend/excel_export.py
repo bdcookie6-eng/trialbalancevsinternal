@@ -10,7 +10,10 @@ Three sheets, mirroring the audit deliverable sent to the client for approval:
 from __future__ import annotations
 
 import io
+import re
 import textwrap
+import xml.etree.ElementTree as ET
+import zipfile
 
 from openpyxl import Workbook
 from openpyxl.formatting.rule import FormulaRule
@@ -57,7 +60,9 @@ def _header_row(ws: Worksheet, row: int, headers: list[str]) -> None:
         cell.fill = _HEADER_FILL
 
 
-def _build_aje_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
+def _build_aje_sheet(
+    ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str
+) -> dict[str, float]:
     ws.column_dimensions["A"].width = 56
     ws.column_dimensions["B"].width = 16
     ws.column_dimensions["C"].width = 13
@@ -105,9 +110,14 @@ def _build_aje_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, 
     first_data, last_data = header_row + 1, row - 1
     label_cell = ws.cell(row=row, column=1, value="TOTALS")
     label_cell.alignment = Alignment(horizontal="right")
+    total_debit = round(sum(line.debit or 0.0 for line in report.aje_rows), 2) + 0.0
+    total_credit = round(sum(line.credit or 0.0 for line in report.aje_rows), 2) + 0.0
+    cached_values: dict[str, float] = {}
     if report.aje_rows:
         ws.cell(row=row, column=2, value=f"=SUM(B{first_data}:B{last_data})")
         ws.cell(row=row, column=3, value=f"=SUM(C{first_data}:C{last_data})")
+        cached_values[f"B{row}"] = total_debit
+        cached_values[f"C{row}"] = total_credit
     else:
         ws.cell(row=row, column=2, value=0)
         ws.cell(row=row, column=3, value=0)
@@ -121,6 +131,8 @@ def _build_aje_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, 
     # Balance check just outside the table: debits minus credits must be zero.
     check = ws.cell(row=row, column=4, value=f"=+B{row}-C{row}")
     check.number_format = AJE_NUMBER_FORMAT
+    cached_values[f"D{row}"] = round(total_debit - total_credit, 2) + 0.0
+    return cached_values
 
 
 def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
@@ -171,7 +183,9 @@ def _build_summary_sheet(ws: Worksheet, report: ComparisonReport, client_name: s
         row += 1
 
 
-def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str) -> None:
+def _build_comparison_sheet(
+    ws: Worksheet, report: ComparisonReport, client_name: str, period_label: str
+) -> dict[str, float]:
     ws.column_dimensions["A"].width = 12
     ws.column_dimensions["B"].width = 58
     ws.column_dimensions["C"].width = 18
@@ -197,6 +211,7 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
     )
 
     row = header_row + 1
+    cached_values: dict[str, float] = {}
     for r in report.rows:
         ws.cell(row=row, column=1, value=r.account_code)
         ws.cell(row=row, column=2, value=r.account_name)
@@ -204,6 +219,7 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
         a_cell = ws.cell(row=row, column=4, value=r.audit_balance)
         # Difference stays a live formula (x - y: Per Report minus Per Client).
         d_cell = ws.cell(row=row, column=5, value=f"=+D{row}-C{row}")
+        cached_values[f"E{row}"] = r.difference
         ws.cell(row=row, column=6, value=r.note)
         for cell in (c_cell, a_cell, d_cell):
             cell.number_format = NUMBER_FORMAT
@@ -221,24 +237,68 @@ def _build_comparison_sheet(ws: Worksheet, report: ComparisonReport, client_name
 
     total_cell = ws.cell(row=row, column=2, value="TOTAL")
     total_cell.font = _BOLD_FONT
+    column_totals = {"C": report.total_client, "D": report.total_audit, "E": report.net_difference}
     for col_letter, col in (("C", 3), ("D", 4), ("E", 5)):
         cell = ws.cell(row=row, column=col, value=f"=SUM({col_letter}{first_data}:{col_letter}{last_data})")
         cell.number_format = TOTAL_NUMBER_FORMAT
         cell.font = _BOLD_FONT
+        cached_values[f"{col_letter}{row}"] = column_totals[col_letter]
+    return cached_values
+
+
+_SHEET_ML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def _inject_cached_formula_values(xlsx_bytes: bytes, sheet_values: dict[int, dict[str, float]]) -> bytes:
+    """Store each formula cell's computed result in the sheet XML.
+
+    openpyxl writes formulas without cached values, so viewers that don't run a
+    calculation engine (Google Drive/Gmail previews, macOS Quick Look, LibreOffice
+    with recalculation off) render the Difference column and every TOTAL row as
+    blank cells. Embedding the precomputed result (the <v> element next to <f>)
+    makes totals visible everywhere; Excel still recalculates the live formulas
+    on open because openpyxl sets fullCalcOnLoad.
+
+    sheet_values maps a zero-based sheet index (openpyxl saves worksheets in
+    order as xl/worksheets/sheet1.xml, sheet2.xml, …) to {cell ref: value}.
+    """
+    source = zipfile.ZipFile(io.BytesIO(xlsx_bytes))
+    buffer = io.BytesIO()
+    ET.register_namespace("", _SHEET_ML_NS)
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            match = re.fullmatch(r"xl/worksheets/sheet(\d+)\.xml", item.filename)
+            values = sheet_values.get(int(match.group(1)) - 1) if match else None
+            if values:
+                root = ET.fromstring(data)
+                for cell in root.iter(f"{{{_SHEET_ML_NS}}}c"):
+                    value = values.get(cell.get("r"))
+                    if value is not None and cell.find(f"{{{_SHEET_ML_NS}}}f") is not None:
+                        # openpyxl already writes an empty <v/> after <f> — fill it
+                        # rather than appending a duplicate, which readers ignore.
+                        v = cell.find(f"{{{_SHEET_ML_NS}}}v")
+                        if v is None:
+                            v = ET.SubElement(cell, f"{{{_SHEET_ML_NS}}}v")
+                        # + 0.0 folds a rounded -0.0 into 0.0 so previews never show "-0".
+                        v.text = repr(value + 0.0)
+                data = ET.tostring(root, xml_declaration=True, encoding="UTF-8")
+            target.writestr(item, data)
+    return buffer.getvalue()
 
 
 def build_workbook(report: ComparisonReport, client_name: str, period_label: str) -> bytes:
     wb = Workbook()
     aje_ws = wb.active
     aje_ws.title = "Adjusting Journal Entry"
-    _build_aje_sheet(aje_ws, report, client_name, period_label)
+    aje_values = _build_aje_sheet(aje_ws, report, client_name, period_label)
 
     comparison_ws = wb.create_sheet("TB Comparison")
-    _build_comparison_sheet(comparison_ws, report, client_name, period_label)
+    comparison_values = _build_comparison_sheet(comparison_ws, report, client_name, period_label)
 
     summary_ws = wb.create_sheet("Summary")
     _build_summary_sheet(summary_ws, report, client_name, period_label)
 
     buffer = io.BytesIO()
     wb.save(buffer)
-    return buffer.getvalue()
+    return _inject_cached_formula_values(buffer.getvalue(), {0: aje_values, 1: comparison_values})

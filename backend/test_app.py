@@ -369,6 +369,29 @@ def test_workbook_matches_json(client):
     ]
 
 
+def test_workbook_totals_visible_without_recalculation(client):
+    """Preview-only viewers (Drive/Gmail previews, Quick Look, LibreOffice with
+    recalculation off) never run formulas — they show only cached results. Every
+    formula cell must therefore carry its computed value, or the Difference
+    column and the TOTAL rows render blank."""
+    data = _reconcile_example(client)
+    wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(data["workbook_base64"])), data_only=True)
+
+    comp = wb["TB Comparison"]
+    for excel_row, json_row in zip(comp.iter_rows(min_row=4, max_row=comp.max_row - 1), data["rows"]):
+        assert excel_row[4].value == json_row["difference"]
+    total = list(comp.iter_rows(min_row=comp.max_row, max_row=comp.max_row))[0]
+    s = data["summary"]
+    assert total[2].value == s["total_client"]
+    assert total[3].value == s["total_audit"]
+    assert total[4].value == s["net_difference"]
+
+    aje = wb["Adjusting Journal Entry"]
+    assert aje.cell(row=aje.max_row, column=2).value == data["aje"]["total_debit"]
+    assert aje.cell(row=aje.max_row, column=3).value == data["aje"]["total_credit"]
+    assert aje.cell(row=aje.max_row, column=4).value == 0.0  # balance check: debits = credits
+
+
 def test_aje_lines_book_differences_as_debits_and_credits(client):
     data = _reconcile_example(client)
     aje = data["aje"]
