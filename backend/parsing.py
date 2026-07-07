@@ -65,15 +65,19 @@ def _load_workbook(raw: bytes):
     return wb
 
 
+def _grid_from_workbook(raw: bytes) -> list[list]:
+    wb = _load_workbook(raw)
+    ws = wb.worksheets[0]
+    return [[c.value for c in row] for row in ws.iter_rows()]
+
+
 def _load_grid(filename: str, raw: bytes) -> list[list]:
     """Load a file into a plain 2D grid of cell values, 1-indexed by row/column
-    position for callers. Shared by the client-format detector and the
-    column-mapping fallback so both work across xlsx and csv alike."""
+    position for callers. Every format detector and parser works off this one
+    grid so an upload is only ever read from bytes once per request."""
     lower = filename.lower()
-    if lower.endswith((".xlsx", ".xls")):
-        wb = _load_workbook(raw)
-        ws = wb.worksheets[0]
-        return [[c.value for c in row] for row in ws.iter_rows()]
+    if lower.endswith(".xlsx"):
+        return _grid_from_workbook(raw)
     if lower.endswith(".csv"):
         try:
             text = raw.decode("utf-8-sig", errors="replace")
@@ -83,6 +87,22 @@ def _load_grid(filename: str, raw: bytes) -> list[list]:
     raise ValueError(f"Cannot grid-load file type: {filename}")
 
 
+def _df_from_grid(grid: list[list]) -> pd.DataFrame:
+    """First grid row becomes the header, mirroring pd.read_csv/read_excel —
+    including pandas' `.1`, `.2` suffixes on duplicate column names, which
+    _rows_to_entries relies on to keep duplicate columns addressable."""
+    if not grid:
+        return pd.DataFrame()
+    seen: dict[str, int] = {}
+    columns = []
+    for value in grid[0]:
+        label = "" if value is None else str(value).strip()
+        count = seen.get(label, 0)
+        seen[label] = count + 1
+        columns.append(label if count == 0 else f"{label}.{count}")
+    return pd.DataFrame(grid[1:], columns=columns)
+
+
 # ---------------------------------------------------------------------------
 # Audit workpaper format
 # ---------------------------------------------------------------------------
@@ -90,24 +110,28 @@ def _load_grid(filename: str, raw: bytes) -> list[list]:
 _TAG_ACCOUNT_PREFIXES = ("Account_",)
 
 
-def _find_header_row(ws) -> int | None:
-    for row in ws.iter_rows(min_row=1, max_row=min(30, ws.max_row)):
-        values = [str(c.value).strip().lower() if c.value is not None else "" for c in row]
+def _find_header_row(grid: list[list]) -> int | None:
+    for i, row in enumerate(grid[:30], start=1):
+        values = [str(c).strip().lower() if c is not None else "" for c in row]
         if "code" in values and "account" in values and "description" in values:
-            return row[0].row
+            return i
     return None
 
 
-def inspect_audit_workpaper(raw: bytes) -> dict:
+def _cell(row: list, col: int | None):
+    """1-indexed column lookup tolerant of short/ragged rows."""
+    if not col:
+        return None
+    return row[col - 1] if col - 1 < len(row) else None
+
+
+def inspect_audit_workpaper(grid: list[list]) -> dict:
     """Return detected balance columns so the caller can choose which to compare."""
-    wb = _load_workbook(raw)
-    ws = wb.worksheets[0]
-    header_row_idx = _find_header_row(ws)
+    header_row_idx = _find_header_row(grid)
     if header_row_idx is None:
         return {"is_audit_workpaper": False, "columns": []}
 
-    header_cells = next(ws.iter_rows(min_row=header_row_idx, max_row=header_row_idx))
-    headers = [str(c.value).strip() if c.value is not None else "" for c in header_cells]
+    headers = [str(c).strip() if c is not None else "" for c in grid[header_row_idx - 1]]
 
     balance_keywords = ("report", "adjusted", "unadjusted", "balance")
     candidates = [
@@ -126,35 +150,34 @@ def inspect_audit_workpaper(raw: bytes) -> dict:
     return {"is_audit_workpaper": True, "columns": candidates, "default_column": default}
 
 
-def _classify_rows_by_tag(ws, header_row_idx: int) -> list[int] | None:
+def _classify_rows_by_tag(grid: list[list], header_row_idx: int) -> list[int] | None:
     """If a tag column (e.g. 'System Type') exists, return row indices that are real accounts."""
-    header_cells = next(ws.iter_rows(min_row=header_row_idx, max_row=header_row_idx))
     tag_col_idx = None
-    for c in header_cells:
-        if c.value and "system type" in str(c.value).strip().lower():
-            tag_col_idx = c.column
+    for col, value in enumerate(grid[header_row_idx - 1], start=1):
+        if value and "system type" in str(value).strip().lower():
+            tag_col_idx = col
             break
     if tag_col_idx is None:
         return None
 
     account_rows = []
-    for row in ws.iter_rows(min_row=header_row_idx + 1, max_row=ws.max_row):
-        tag_cell = row[tag_col_idx - 1]
-        tag = tag_cell.value
+    for row_idx, row in enumerate(grid[header_row_idx:], start=header_row_idx + 1):
+        tag = _cell(row, tag_col_idx)
         if isinstance(tag, str) and tag.startswith(_TAG_ACCOUNT_PREFIXES):
-            account_rows.append(tag_cell.row)
+            account_rows.append(row_idx)
     return account_rows
 
 
-def parse_audit_workpaper(raw: bytes, balance_column: str | None = None) -> list[TBEntry]:
-    wb = _load_workbook(raw)
-    ws = wb.worksheets[0]
-    header_row_idx = _find_header_row(ws)
+def parse_audit_workpaper(grid: list[list], balance_column: str | None = None) -> list[TBEntry]:
+    header_row_idx = _find_header_row(grid)
     if header_row_idx is None:
         raise ValueError("Could not find a Code/Account/Description header row.")
 
-    header_cells = next(ws.iter_rows(min_row=header_row_idx, max_row=header_row_idx))
-    headers = {str(c.value).strip(): c.column for c in header_cells if c.value is not None}
+    headers = {
+        str(c).strip(): col
+        for col, c in enumerate(grid[header_row_idx - 1], start=1)
+        if c is not None
+    }
 
     code_col = headers.get("Code")
     account_col = headers.get("Account")
@@ -163,20 +186,21 @@ def parse_audit_workpaper(raw: bytes, balance_column: str | None = None) -> list
         raise ValueError("Audit workpaper is missing a Description column.")
 
     if balance_column is None:
-        info = inspect_audit_workpaper(raw)
+        info = inspect_audit_workpaper(grid)
         balance_column = info.get("default_column")
     balance_col = headers.get(balance_column)
     if balance_col is None:
         raise ValueError(f"Balance column '{balance_column}' not found in workpaper.")
 
-    account_rows = _classify_rows_by_tag(ws, header_row_idx)
+    account_rows = _classify_rows_by_tag(grid, header_row_idx)
 
     entries: list[TBEntry] = []
     if account_rows is not None:
         for row_idx in account_rows:
-            description = ws.cell(row=row_idx, column=description_col).value
-            balance = _to_float(ws.cell(row=row_idx, column=balance_col).value)
-            code = ws.cell(row=row_idx, column=account_col).value if account_col else None
+            row = grid[row_idx - 1]
+            description = _cell(row, description_col)
+            balance = _to_float(_cell(row, balance_col))
+            code = _cell(row, account_col)
             if description and balance is not None:
                 entries.append(
                     TBEntry(
@@ -188,15 +212,15 @@ def parse_audit_workpaper(raw: bytes, balance_column: str | None = None) -> list
     else:
         # Heuristic fallback: a real account row has a non-blank Account code and
         # a Description, and its Code column does NOT contain "Total".
-        for row in ws.iter_rows(min_row=header_row_idx + 1, max_row=ws.max_row):
-            code_val = row[code_col - 1].value if code_col else None
-            account_val = row[account_col - 1].value if account_col else None
-            description_val = row[description_col - 1].value
+        for row in grid[header_row_idx:]:
+            code_val = _cell(row, code_col)
+            account_val = _cell(row, account_col)
+            description_val = _cell(row, description_col)
             if code_val and "total" in str(code_val).lower():
                 continue
             if not account_val or not description_val:
                 continue
-            balance = _to_float(row[balance_col - 1].value)
+            balance = _to_float(_cell(row, balance_col))
             if balance is None:
                 continue
             entries.append(
@@ -224,12 +248,11 @@ def _find_client_header_row(grid: list[list]) -> int | None:
     return None
 
 
-def is_client_debit_credit_format(filename: str, raw: bytes) -> bool:
-    return _find_client_header_row(_load_grid(filename, raw)) is not None
-
-
 def parse_client_debit_credit(filename: str, raw: bytes) -> list[TBEntry]:
-    grid = _load_grid(filename, raw)
+    return _parse_client_debit_credit_grid(_load_grid(filename, raw))
+
+
+def _parse_client_debit_credit_grid(grid: list[list]) -> list[TBEntry]:
     header_row_idx = _find_client_header_row(grid)
     if header_row_idx is None:
         raise ValueError("Could not find a Full name/Debit/Credit header row.")
@@ -320,11 +343,6 @@ def parse_csv(raw: bytes) -> list[TBEntry]:
     return _rows_to_entries(df)
 
 
-def parse_excel_generic(raw: bytes) -> list[TBEntry]:
-    df = pd.read_excel(io.BytesIO(raw))
-    return _rows_to_entries(df)
-
-
 def parse_pdf(raw: bytes) -> list[TBEntry]:
     entries: list[TBEntry] = []
     with pdfplumber.open(io.BytesIO(raw)) as pdf:
@@ -335,10 +353,10 @@ def parse_pdf(raw: bytes) -> list[TBEntry]:
                 header, *rows = table
                 df = pd.DataFrame(rows, columns=header)
                 entries.extend(_rows_to_entries(df))
-    if entries:
-        return entries
+        if entries:
+            return entries
 
-    with pdfplumber.open(io.BytesIO(raw)) as pdf:
+        # No usable tables — fall back to "name ... amount" lines of raw text.
         for page in pdf.pages:
             text = page.extract_text() or ""
             for line in text.splitlines():
@@ -434,15 +452,9 @@ class ColumnMapping:
 def parse_with_mapping(filename: str, raw: bytes, mapping: ColumnMapping) -> list[TBEntry]:
     grid = _load_grid(filename, raw)
 
-    def cell(row: list, col: int | None):
-        if not col:
-            return None
-        idx = col - 1
-        return row[idx] if idx < len(row) else None
-
     entries: list[TBEntry] = []
     for row in grid[mapping.header_row :]:
-        name_val = cell(row, mapping.name_col)
+        name_val = _cell(row, mapping.name_col)
         if not name_val:
             continue
         name = str(name_val).strip()
@@ -452,15 +464,15 @@ def parse_with_mapping(filename: str, raw: bytes, mapping: ColumnMapping) -> lis
             break
 
         if mapping.balance_col:
-            balance = _to_float(cell(row, mapping.balance_col))
+            balance = _to_float(_cell(row, mapping.balance_col))
         else:
-            debit = _to_float(cell(row, mapping.debit_col)) or 0.0
-            credit = _to_float(cell(row, mapping.credit_col)) or 0.0
+            debit = _to_float(_cell(row, mapping.debit_col)) or 0.0
+            credit = _to_float(_cell(row, mapping.credit_col)) or 0.0
             balance = debit - credit
         if balance is None:
             continue
 
-        code_val = cell(row, mapping.code_col)
+        code_val = _cell(row, mapping.code_col)
         entries.append(
             TBEntry(
                 account_name=name,
@@ -492,18 +504,13 @@ If you cannot confidently identify the account-name and balance columns, set con
 """
 
 
-def _ai_detect_mapping(filename: str, raw: bytes) -> tuple[ColumnMapping | None, int]:
+def _ai_detect_mapping(grid: list[list]) -> tuple[ColumnMapping | None, int]:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         return None, 0
     try:
         import anthropic
     except ImportError:
-        return None, 0
-
-    try:
-        grid = _load_grid(filename, raw)
-    except ValueError:
         return None, 0
 
     sample = grid[:40]
@@ -548,10 +555,9 @@ def _ai_detect_mapping(filename: str, raw: bytes) -> tuple[ColumnMapping | None,
         return None, 0
 
 
-def _inspect_unknown(filename: str, raw: bytes) -> dict:
-    grid = _load_grid(filename, raw)
+def _inspect_unknown(grid: list[list]) -> dict:
     preview = [[("" if c is None else str(c)) for c in row] for row in grid[:20]]
-    mapping, confidence = _ai_detect_mapping(filename, raw)
+    mapping, confidence = _ai_detect_mapping(grid)
     return {
         "format": "unknown",
         "grid_preview": preview,
@@ -676,24 +682,28 @@ def inspect_upload(filename: str, raw: bytes) -> dict:
     return result
 
 
+_XLS_ERROR = (
+    "Legacy .xls files aren't supported — open the file in Excel, save it as .xlsx, "
+    "and upload that instead."
+)
+
+
 def _detect_upload_format(filename: str, raw: bytes) -> dict:
     lower = filename.lower()
-    if lower.endswith((".xlsx", ".xls")):
-        audit_info = inspect_audit_workpaper(raw)
-        if audit_info["is_audit_workpaper"]:
-            detected_date = detect_period_label(filename, audit_info.get("columns"))
-            return {"format": "audit_workpaper", **audit_info, "detected_date": detected_date}
-        if is_client_debit_credit_format(filename, raw):
+    if lower.endswith((".xlsx", ".csv")):
+        grid = _load_grid(filename, raw)
+        if lower.endswith(".xlsx"):
+            audit_info = inspect_audit_workpaper(grid)
+            if audit_info["is_audit_workpaper"]:
+                detected_date = detect_period_label(filename, audit_info.get("columns"))
+                return {"format": "audit_workpaper", **audit_info, "detected_date": detected_date}
+        if _find_client_header_row(grid) is not None:
             return {"format": "client_debit_credit", "detected_date": detect_period_label(filename)}
-        if _generic_columns_confident(pd.read_excel(io.BytesIO(raw))):
+        if _generic_columns_confident(_df_from_grid(grid)):
             return {"format": "generic", "detected_date": detect_period_label(filename)}
-        return _inspect_unknown(filename, raw)
-    if lower.endswith(".csv"):
-        if is_client_debit_credit_format(filename, raw):
-            return {"format": "client_debit_credit", "detected_date": detect_period_label(filename)}
-        if _generic_columns_confident(pd.read_csv(io.BytesIO(raw))):
-            return {"format": "generic", "detected_date": detect_period_label(filename)}
-        return _inspect_unknown(filename, raw)
+        return _inspect_unknown(grid)
+    if lower.endswith(".xls"):
+        return {"format": "unsupported", "error": _XLS_ERROR}
     if lower.endswith(".pdf"):
         return {"format": "generic", "detected_date": detect_period_label(filename)}
     return {
@@ -712,17 +722,17 @@ def parse_upload(
         return parse_with_mapping(filename, raw, ColumnMapping.from_dict(mapping))
 
     lower = filename.lower()
-    if lower.endswith((".xlsx", ".xls")):
-        audit_info = inspect_audit_workpaper(raw)
-        if audit_info["is_audit_workpaper"]:
-            return parse_audit_workpaper(raw, balance_column=balance_column)
-        if is_client_debit_credit_format(filename, raw):
-            return parse_client_debit_credit(filename, raw)
-        return parse_excel_generic(raw)
-    if lower.endswith(".csv"):
-        if is_client_debit_credit_format(filename, raw):
-            return parse_client_debit_credit(filename, raw)
-        return parse_csv(raw)
+    if lower.endswith((".xlsx", ".csv")):
+        grid = _load_grid(filename, raw)
+        if lower.endswith(".xlsx") and inspect_audit_workpaper(grid)["is_audit_workpaper"]:
+            return parse_audit_workpaper(grid, balance_column=balance_column)
+        if _find_client_header_row(grid) is not None:
+            return _parse_client_debit_credit_grid(grid)
+        if lower.endswith(".csv"):
+            return parse_csv(raw)
+        return _rows_to_entries(_df_from_grid(grid))
+    if lower.endswith(".xls"):
+        raise ValueError(_XLS_ERROR)
     if lower.endswith(".pdf"):
         return parse_pdf(raw)
     raise ValueError(f"Unsupported file type: {filename}")

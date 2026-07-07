@@ -290,6 +290,16 @@ def test_inspect_upload_detects_each_format():
     assert inspect_upload("notes.txt", b"hello")["format"] == "unsupported"
 
 
+def test_xls_rejected_with_clear_message():
+    # openpyxl can't read the legacy binary .xls format; without this guard the
+    # user got a misleading "file may be corrupted" error.
+    inspected = inspect_upload("old book.xls", b"\xd0\xcf\x11\xe0fake")
+    assert inspected["format"] == "unsupported"
+    assert "save it as .xlsx" in inspected["error"]
+    with pytest.raises(ValueError, match=r"save it as \.xlsx"):
+        parse_upload("old book.xls", b"\xd0\xcf\x11\xe0fake")
+
+
 def test_detect_client_name_cases():
     assert detect_client_name("Acme Manufacturing LLC Trial Balance 12-31-2025.xlsx") == "Acme Manufacturing, LLC"
     assert detect_client_name("Widgets, Inc. WTB 2025-12-31.xlsx") == "Widgets, Inc."

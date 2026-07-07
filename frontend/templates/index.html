@@ -5,7 +5,7 @@
   <title>Trial Balance Reconciliation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚖️</text></svg>" />
-  <link rel="stylesheet" href="/static/style.css?v=2" />
+  <link rel="stylesheet" href="/static/style.css?v=3" />
 </head>
 <body>
   <header>
@@ -39,7 +39,7 @@
             <button type="button" class="mode-btn" data-mode="text" data-target="client">Paste data</button>
           </div>
           <div class="dropzone" id="client-dropzone">
-            <input type="file" id="client_file" name="client_file" accept=".csv,.xlsx,.xls,.pdf" />
+            <input type="file" id="client_file" name="client_file" accept=".csv,.xlsx,.pdf" />
             <div class="dropzone-label">
               <span class="dropzone-icon">📄</span>
               <span class="dropzone-text">Drag &amp; drop a file here, or click to browse</span>
@@ -77,7 +77,7 @@
             <button type="button" class="mode-btn" data-mode="text" data-target="audit">Paste data</button>
           </div>
           <div class="dropzone" id="audit-dropzone">
-            <input type="file" id="audit_file" name="audit_file" accept=".csv,.xlsx,.xls,.pdf" />
+            <input type="file" id="audit_file" name="audit_file" accept=".csv,.xlsx,.pdf" />
             <div class="dropzone-label">
               <span class="dropzone-icon">📄</span>
               <span class="dropzone-text">Drag &amp; drop a file here, or click to browse</span>
@@ -178,6 +178,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=7"></script>
 </body>
 </html>

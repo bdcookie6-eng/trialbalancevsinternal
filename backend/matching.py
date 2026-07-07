@@ -48,15 +48,14 @@ def _fuzzy_pass(
     norm_audited = [_normalize(e.account_name) for e in audited]
 
     candidates = []
-    for i, ni in enumerate(norm_internal):
-        if not audited:
-            break
-        result = process.extractOne(ni, norm_audited, scorer=fuzz.token_sort_ratio)
-        if result is None:
-            continue
-        _, score, j = result
-        if score >= FUZZY_CANDIDATE_THRESHOLD:
-            candidates.append((score, i, j))
+    if audited:
+        for i, ni in enumerate(norm_internal):
+            result = process.extractOne(ni, norm_audited, scorer=fuzz.token_sort_ratio)
+            if result is None:
+                continue
+            _, score, j = result
+            if score >= FUZZY_CANDIDATE_THRESHOLD:
+                candidates.append((score, i, j))
 
     candidates.sort(key=lambda c: -c[0])
     used_internal: set[int] = set()

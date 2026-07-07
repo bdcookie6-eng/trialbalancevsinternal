@@ -381,13 +381,8 @@ th { background: #eef2f7; }
 .sheet-subtitle { font-weight: 600; margin-top: 0.2rem; }
 .sheet-period, .sheet-column { color: #5a6472; margin-top: 0.1rem; }
 
-.sheet-table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--card-bg); }
-.sheet-table th, .sheet-table td {
-  border: 1px solid var(--border);
-  padding: 0.5rem 0.7rem;
-  font-size: 0.9rem;
-  text-align: left;
-}
+/* Base table/th/td rules above already apply; only the differences live here. */
+.sheet-table { margin: 1rem 0; }
 .sheet-table th { background: var(--accent); color: white; }
 
 #summary-cards tr.row-good td:last-child { background: #c6efce; }

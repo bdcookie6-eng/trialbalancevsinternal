@@ -106,6 +106,10 @@ function buildMappingPanel(target) {
       aiFlag.hidden = !suggestion;
       setBalanceMode("single");
       if (suggestion) {
+        const confidence = info.mapping_confidence;
+        aiFlag.textContent = Number.isFinite(confidence)
+          ? `AI suggested the mapping below (${confidence}% confident) — please verify before running.`
+          : "AI suggested the mapping below — please verify before running.";
         headerRowSelect.value = String(suggestion.header_row ?? 0);
         nameColSelect.value = String(suggestion.name_col ?? 1);
         codeColSelect.value = suggestion.code_col ? String(suggestion.code_col) : "";
