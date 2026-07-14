@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import json
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Form, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from excel_export import build_workbook
@@ -45,6 +47,25 @@ async def cache_control(request, call_next):
     else:
         response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+_ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+
+
+@app.middleware("http")
+async def access_code(request, call_next):
+    """Optional shared access code (HTTP Basic: user "sst", password = ACCESS_CODE
+    env var). When the variable is unset the tool stays open — nothing changes."""
+    if _ACCESS_CODE:
+        expected = "Basic " + base64.b64encode(f"sst:{_ACCESS_CODE}".encode()).decode()
+        supplied = request.headers.get("authorization", "")
+        if not hmac.compare_digest(supplied, expected):
+            return Response(
+                'Access code required — user "sst", password is the office access code.',
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="SST Tools"'},
+            )
+    return await call_next(request)
 
 
 @app.get("/", response_class=HTMLResponse)
