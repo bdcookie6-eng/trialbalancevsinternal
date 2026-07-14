@@ -176,6 +176,45 @@
         <a id="download-link" href="#" download="trial_balance_comparison.xlsx">Download Excel workbook</a>
       </div>
     </section>
+
+    <section class="user-guide">
+      <style>
+        .user-guide details{background:#fff;border:1px solid var(--border);border-radius:8px;margin-top:1.5rem}
+        .user-guide summary{cursor:pointer;padding:.85rem 1rem;font-size:.85rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+        .user-guide .guide-body{padding:0 1.25rem 1rem;font-size:.92rem;line-height:1.6}
+        .user-guide h3{font-size:.85rem;margin:.9rem 0 .25rem;text-transform:uppercase;letter-spacing:.03em;color:var(--accent)}
+        .user-guide ol,.user-guide ul{padding-left:1.3rem}
+        .user-guide li{margin:.2rem 0}
+      </style>
+      <details>
+        <summary>User guide — how to use this tool</summary>
+        <div class="guide-body">
+          <h3>What this tool does</h3>
+          <p>Compares the client's internal trial balance against the working trial balance for the same period, matches the accounts between the two (exact, fuzzy, then AI for accounts named completely differently), quantifies every difference, and drafts the adjusting journal entry — exported as a three-sheet, client-approval-ready Excel workbook with live formulas.</p>
+          <h3>Inputs needed</h3>
+          <ul>
+            <li>The client's internal trial balance (e.g. a QuickBooks debit/credit export) and the audit working trial balance for the same period.</li>
+            <li>Upload as CSV or XLSX, or paste the data directly. Old <code>.xls</code> files are rejected — re-save them as <code>.xlsx</code> first.</li>
+          </ul>
+          <h3>Steps</h3>
+          <ol>
+            <li>New here? Click <b>Fill with example data</b> to run the whole flow on a fictional demo pair.</li>
+            <li>Upload (or paste) both files — client name and period auto-fill from the filenames; edit them if needed.</li>
+            <li>Pick the audit balance column to compare against (e.g. the report-date column).</li>
+            <li>Click <b>Run Reconciliation</b>. Accounts are matched in three passes: exact/normalized names, fuzzy similarity, then an AI pass for accounts named completely differently — AI-matched pairs show a confidence you can review.</li>
+            <li>Review the previews: the drafted Adjusting Journal Entry, the Summary, and the TB Comparison with differences highlighted. Notes explain one-sided items ("Not in client records" / "Not on audit working trial balance").</li>
+            <li>Set the workbook file name and click <b>Download Excel workbook</b>.</li>
+          </ol>
+          <h3>The workbook</h3>
+          <p>Three sheets, matching the real deliverable: the AJE with debit/credit lines under the client's own account names, SUM totals, and a balance check; the TB Comparison with live difference formulas and material differences highlighted; and a Summary with totals and a plain-English conclusion. What you preview is exactly what downloads.</p>
+          <h3>Notes</h3>
+          <ul>
+            <li>Works without an AI key — matching degrades gracefully to exact and fuzzy passes.</li>
+            <li>Nothing you upload is stored; every response is marked not to be cached.</li>
+          </ul>
+        </div>
+      </details>
+    </section>
   </main>
 
   <script src="/static/app.js?v=7"></script>
